@@ -20,11 +20,20 @@
   .lbl.warn { border-color: var(--warn); color: var(--warn); }
   .dim { font-size: 10px; color: #5b6470; background: rgba(238,240,243,.9); padding: 0 4px; border-radius: 3px; }
   .dim.wall { color: #b0475c; font-weight: 600; }
+  .dim.wall.ok { color: #1b7f3b; }
+  .corner { font-size: 13px; font-weight: 800; color: #fff; background: #b0475c; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .okbox { background: #e8f5ec; color: #1b7f3b; border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
+  table.walls td { padding: 2px 1px; }
+  table.walls input, table.walls select { padding: 4px 4px; font-size: 12px; }
+  table.walls input.meas { border-color: #1b7f3b; background: #f3fbf5; }
+  table.walls .wn { font-weight: 700; color: var(--text); white-space: nowrap; }
+  table.walls .wm { display: block; font-size: 10px; color: var(--muted); font-weight: 400; }
+  details { margin: 10px 0; color: var(--muted); }
   #hud { position: absolute; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; }
   #hud button, .btn { border: 1px solid var(--line); background: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
   #hud button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   #help { position: absolute; left: 10px; bottom: 10px; background: rgba(255,255,255,.88); border-radius: 6px; padding: 6px 10px; color: var(--muted); font-size: 12px; z-index: 2; max-width: calc(100% - 20px); }
-  #panel { width: 380px; flex-shrink: 0; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  #panel { width: 430px; flex-shrink: 0; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   #panel header { padding: 12px 14px 8px; border-bottom: 1px solid var(--line); }
   #panel header b { font-size: 15px; }
   #panel header .sub { color: var(--muted); margin-top: 2px; }
@@ -146,7 +155,10 @@ const undoStack = [];
 
 function readJSON(key) { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
 function writeJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
-function loadState() { return readJSON(STORE_KEY) || clone(window.WAREHOUSE_DEFAULT); }
+function loadState() {
+  const s = readJSON(STORE_KEY);
+  return s && s.room && Array.isArray(s.room.walls) ? s : clone(window.WAREHOUSE_DEFAULT);
+}
 function saveState() { state.meta.updated = new Date().toISOString().slice(0, 10); writeJSON(STORE_KEY, state); }
 function saveUI() { writeJSON(UI_KEY, { labels: ui.labels, colorMode: ui.colorMode, tab: ui.tab }); }
 function getItem(id) { return state.items.find(i => i.id === id); }
@@ -230,7 +242,7 @@ function computeIssues() {
   const placed = state.items.filter(i => i.placed !== false);
   const floor = placed.filter(i => (i.y || 0) < 1);
   for (const it of placed) {
-    if (corners(it, 1).some(([x, z]) => !inPoly(x, z, state.room.outline))) add(it.id, '벽 밖으로 나감');
+    if (corners(it, 1).some(([x, z]) => !inPoly(x, z, geom.outline))) add(it.id, '벽 밖으로 나감');
     if ((it.y || 0) + it.h > state.room.height) add(it.id, '천장 높이 초과');
   }
   for (let i = 0; i < floor.length; i++) for (let j = i + 1; j < floor.length; j++) {
@@ -239,6 +251,42 @@ function computeIssues() {
       add(floor[j].id, `겹침: ${floor[i].name}`);
     }
   }
+}
+
+// ───────── 공간 계산: 벽 길이·모서리 각도·휨 → 좌표 ─────────
+const LET = i => (i < 26 ? String.fromCharCode(65 + i) : 'Z' + (i - 25));
+const effLen = w => (w.measured > 0 ? w.measured : w.len);
+const KINDS = { wall: '벽', window: '창문', glass: '유리칸막이' };
+let geom = null;
+function computeGeom() {
+  const r = state.room;
+  let [x, z] = r.start || [0, 0];
+  let hd = (r.heading ?? 0) * Math.PI / 180;
+  const corners = [[x, z]];
+  r.walls.forEach((w, i) => {
+    const L = effLen(w);
+    x += Math.cos(hd) * L; z += Math.sin(hd) * L;
+    if (i < r.walls.length - 1) { corners.push([x, z]); hd += (180 - (w.angle ?? 90)) * Math.PI / 180; }
+  });
+  const closeErr = Math.hypot(x - corners[0][0], z - corners[0][1]);
+  const n = corners.length;
+  let a2 = 0;
+  for (let i = 0; i < n; i++) { const [x1, z1] = corners[i], [x2, z2] = corners[(i + 1) % n]; a2 += x1 * z2 - x2 * z1; }
+  const sgn = a2 >= 0 ? 1 : -1;
+  const outOf = (a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1; return [sgn * dz / l, -sgn * dx / l]; };
+  const walls = r.walls.map((w, i) => {
+    const P = corners[i], Q = corners[(i + 1) % n];
+    const dx = Q[0] - P[0], dz = Q[1] - P[1];
+    const out = outOf(P, Q), b = w.bulge || 0;
+    const segs = !b ? 1 : (w.kind === 'window' ? Math.max(2, Math.round(Math.hypot(dx, dz) / 150)) : 16);
+    const pts = [];
+    for (let k = 0; k <= segs; k++) { const t = k / segs, s = b * 4 * t * (1 - t); pts.push([P[0] + dx * t + out[0] * s, P[1] + dz * t + out[1] * s]); }
+    let len = 0;
+    for (let k = 0; k < segs; k++) len += Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]);
+    return { i, pts, len, out, kind: w.kind || 'wall', mid: [P[0] + dx / 2 + out[0] * b, P[1] + dz / 2 + out[1] * b],
+      outStart: outOf(pts[0], pts[1]), outEnd: outOf(pts[segs - 1], pts[segs]) };
+  });
+  geom = { corners, walls, outline: walls.flatMap(w => w.pts.slice(0, -1)), closeErr, sgn };
 }
 
 // ───────── 공간(바닥·벽·문·창) ─────────
@@ -253,8 +301,9 @@ function buildRoom() {
   disposeGroup(roomGroup);
   disposeGroup(dimGroup);
   walls = [];
-  const { outline, height: H, windows = [], doors = [] } = state.room;
+  const { height: H, doors = [] } = state.room;
   const sill = state.room.sill ?? 80;
+  const outline = geom.outline;
   const xs = outline.map(p => p[0]), zs = outline.map(p => p[1]);
   bounds = { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
 
@@ -283,64 +332,93 @@ function buildRoom() {
   gg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   roomGroup.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0xc9c2b0 })));
 
-  // 벽
-  const T = 12, n = outline.length;
-  for (let i = 0; i < n; i++) {
-    const [x1, z1] = outline[i], [x2, z2] = outline[(i + 1) % n];
-    const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz);
-    if (len < 1) continue;
-    const ux = dx / len, uz = dz / len;
-    let nx = uz, nz = -ux;
-    const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
-    if (inPoly(mx + nx * 5, mz + nz * 5, outline)) { nx = -nx; nz = -nz; }
+  // 벽 (곡면 벽은 여러 조각으로)
+  const T = 12, nW = geom.walls.length;
+  const cornerMats = [];
+  for (const gw of geom.walls) {
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xf2d3da, roughness: 0.9, transparent: true });
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fc6d8, roughness: 0.1, transparent: true, opacity: 0.28, depthWrite: false });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, transparent: true });
+    cornerMats.push(gw.kind === 'wall' ? wallMat : frameMat);
     const grp = new THREE.Group();
-    walls.push({ mid: { x: mx * S, z: mz * S }, n: { x: nx, z: nz }, mats: [[wallMat, 1], [glassMat, 0.28], [frameMat, 1]] });
-    const seg = (a, b, y0, y1, mat, thick = T) => {
-      if (b - a < 0.5 || y1 - y0 < 0.5) return;
-      const m = new THREE.Mesh(new THREE.BoxGeometry((b - a) * S, (y1 - y0) * S, thick * S), mat);
-      const c = (a + b) / 2;
-      m.position.set((x1 + ux * c + nx * T / 2) * S, (y0 + y1) / 2 * S, (z1 + uz * c + nz * T / 2) * S);
-      m.rotation.y = -Math.atan2(uz, ux);
-      m.receiveShadow = true;
-      grp.add(m);
-    };
-    const isWin = windows.includes(i);
-    const solid = (a, b) => {
-      if (b - a < 0.5) return;
-      if (!isWin) return seg(a, b, 0, H, wallMat);
-      seg(a, b, 0, sill, wallMat);
-      seg(a, b, sill, H - 15, glassMat, 4);
-      seg(a, b, H - 15, H, wallMat);
-      seg(a, b, sill, sill + 5, frameMat, T + 2);
-      for (let m = a + 150; m < b - 20; m += 150) seg(m - 2.5, m + 2.5, sill, H - 15, frameMat, 8);
-    };
-    const ops = doors.filter(d => d.wall === i)
-      .map(d => ({ a: Math.max(0, d.offset - d.width / 2), b: Math.min(len, d.offset + d.width / 2), h: Math.min(H, d.height || 210), type: d.type || 'door' }))
-      .sort((p, q) => p.a - q.a);
-    let cur = 0;
-    for (const o of ops) {
-      solid(cur, o.a);
-      seg(o.a, o.b, o.h, H, o.type === 'glass' ? glassMat : wallMat, o.type === 'glass' ? 4 : T);
-      seg(o.a, o.a + 5, 0, o.h, frameMat, T + 2);
-      seg(o.b - 5, o.b, 0, o.h, frameMat, T + 2);
-      seg(o.a, o.b, o.h - 5, o.h, frameMat, T + 2);
-      if (o.type === 'glass') seg(o.a + 5, o.b - 5, 0, o.h - 5, glassMat, 3);
-      cur = Math.max(cur, o.b);
+    walls.push({ mid: { x: gw.mid[0] * S, z: gw.mid[1] * S }, n: { x: gw.out[0], z: gw.out[1] }, mats: [[wallMat, 1], [glassMat, 0.28], [frameMat, 1]] });
+    const ops = doors.filter(d => d.wall === gw.i)
+      .map(d => ({ a: Math.max(0, d.offset - d.width / 2), b: Math.min(gw.len, d.offset + d.width / 2), h: Math.min(H, d.height || 210), type: d.type || 'door' }));
+    let c0 = 0;
+    for (let k = 0; k < gw.pts.length - 1; k++) {
+      const [x1, z1] = gw.pts[k], [x2, z2] = gw.pts[k + 1];
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      if (len < 0.5) continue;
+      const ux = (x2 - x1) / len, uz = (z2 - z1) / len;
+      const nx = geom.sgn * uz, nz = -geom.sgn * ux;
+      const seg = (a, b, y0, y1, mat, thick = T) => {
+        if (b - a < 0.5 || y1 - y0 < 0.5) return;
+        const m = new THREE.Mesh(new THREE.BoxGeometry((b - a) * S, (y1 - y0) * S, thick * S), mat);
+        const c = (a + b) / 2;
+        m.position.set((x1 + ux * c + nx * T / 2) * S, (y0 + y1) / 2 * S, (z1 + uz * c + nz * T / 2) * S);
+        m.rotation.y = -Math.atan2(uz, ux);
+        m.receiveShadow = true;
+        grp.add(m);
+      };
+      const solid = (a, b) => {
+        if (b - a < 0.5) return;
+        if (gw.kind === 'window') {
+          seg(a, b, 0, sill, wallMat);
+          seg(a, b, sill, H - 15, glassMat, 4);
+          seg(a, b, H - 15, H, wallMat);
+          seg(a, b, sill, sill + 5, frameMat, T + 2);
+          for (let m = a + 150; m < b - 20; m += 150) seg(m - 2.5, m + 2.5, sill, H - 15, frameMat, 8);
+        } else if (gw.kind === 'glass') {
+          seg(a, b, 0, 10, frameMat, T);
+          seg(a, b, 10, H, glassMat, 4);
+          seg(a, b, 225, 230, frameMat, 8);
+          for (let m = a + 120; m < b - 20; m += 120) seg(m - 2.5, m + 2.5, 0, H, frameMat, 8);
+        } else seg(a, b, 0, H, wallMat);
+      };
+      if (k > 0 && gw.kind === 'window') seg(0, 4, sill, H - 15, frameMat, 10); // 곡면 유리 꺾이는 곳 창틀
+      const local = ops.filter(o => o.b > c0 && o.a < c0 + len)
+        .map(o => ({ ...o, a: Math.max(0, o.a - c0), b: Math.min(len, o.b - c0) })).sort((p, q) => p.a - q.a);
+      let cur = 0;
+      for (const o of local) {
+        solid(cur, o.a);
+        seg(o.a, o.b, o.h, H, gw.kind === 'wall' ? wallMat : glassMat, gw.kind === 'wall' ? T : 4);
+        seg(o.a, o.a + 5, 0, o.h, frameMat, T + 2);
+        seg(o.b - 5, o.b, 0, o.h, frameMat, T + 2);
+        seg(o.a, o.b, o.h - 5, o.h, frameMat, T + 2);
+        if (o.type === 'glass') seg(o.a + 5, o.b - 5, 0, o.h - 5, glassMat, 3);
+        cur = Math.max(cur, o.b);
+      }
+      solid(cur, len);
+      c0 += len;
     }
-    solid(cur, len);
     roomGroup.add(grp);
 
-    // 벽 치수 표시
+    // 벽 이름·길이 (실측이면 초록)
+    const w = state.room.walls[gw.i];
     const el = document.createElement('div');
-    el.className = 'dim wall';
-    el.textContent = `벽${i} · ${Math.round(len)}cm${isWin ? ' (창)' : ''}`;
+    el.className = 'dim wall' + (w.measured > 0 ? ' ok' : '');
+    el.textContent = `${LET(gw.i)}–${LET((gw.i + 1) % nW)} ${Math.round(effLen(w))}cm${w.measured > 0 ? ' ✓' : ' (추정)'}`;
     const lab = new CSS2DObject(el);
-    lab.position.set((mx - nx * 25) * S, 0.02, (mz - nz * 25) * S);
+    lab.position.set((gw.mid[0] - gw.out[0] * 32) * S, 0.02, (gw.mid[1] - gw.out[1] * 32) * S);
     dimGroup.add(lab);
   }
+
+  // 모서리: 바깥 틈 메우기 + A,B,C… 표시
+  geom.corners.forEach(([cx, cz], i) => {
+    const o1 = geom.walls[(i - 1 + nW) % nW].outEnd, o2 = geom.walls[i].outStart;
+    const ox = (o1[0] + o2[0]) / 2, oz = (o1[1] + o2[1]) / 2;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(T * S, H * S, T * S), cornerMats[i]);
+    post.position.set((cx + ox * T) * S, H / 2 * S, (cz + oz * T) * S);
+    post.rotation.y = -Math.atan2(-o2[0] * geom.sgn, o2[1] * geom.sgn);
+    roomGroup.add(post);
+    const ol = Math.hypot(ox, oz) || 1;
+    const el = document.createElement('div');
+    el.className = 'corner';
+    el.textContent = LET(i);
+    const lab = new CSS2DObject(el);
+    lab.position.set((cx - ox / ol * 18) * S, 0.05, (cz - oz / ol * 18) * S);
+    dimGroup.add(lab);
+  });
 
   // 1m 눈금
   for (let x = Math.ceil(bounds.minX / 100) * 100; x <= bounds.maxX; x += 100) addDim(`${x / 100}m`, x, bounds.minZ - 45);
@@ -356,7 +434,8 @@ function buildRoom() {
   sc.updateProjectionMatrix();
 
   document.getElementById('roomInfo').textContent =
-    `외곽 ${bounds.maxX - bounds.minX}×${bounds.maxZ - bounds.minZ}cm · 천장 ${H}cm · 바닥면적 ${(polyArea(outline) / 10000).toFixed(1)}㎡`;
+    `외곽 ${Math.round(bounds.maxX - bounds.minX)}×${Math.round(bounds.maxZ - bounds.minZ)}cm · 천장 ${H}cm · 바닥 ${(polyArea(outline) / 10000).toFixed(1)}㎡ · ` +
+    `실측 ${state.room.walls.filter(w => w.measured > 0).length}/${nW}벽` + (geom.closeErr > 5 ? ` · ⚠ 닫힘오차 ${geom.closeErr.toFixed(0)}cm` : '');
 }
 function addDim(text, x, z) {
   const el = document.createElement('div');
@@ -531,6 +610,7 @@ function updateSelBox() {
   }
 }
 function rebuildAll() {
+  computeGeom();
   buildRoom();
   computeIssues();
   rebuildItems();
@@ -732,22 +812,33 @@ function renderEdit() {
 }
 
 function renderRoom() {
-  const r = state.room, n = r.outline.length;
-  const segLen = i => { const [a, b] = r.outline[i], [c, d] = r.outline[(i + 1) % n]; return Math.round(Math.hypot(c - a, d - b)); };
-  const wallOpts = cur => r.outline.map((_, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>벽${i}</option>`).join('');
+  const r = state.room, n = r.walls.length, g = geom;
+  const wn = i => `${LET(i)}→${LET((i + 1) % n)}`;
+  const wallOpts = cur => r.walls.map((_, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${wn(i)}</option>`).join('');
+  const measN = r.walls.filter(w => w.measured > 0).length;
   el('tab-room').innerHTML = `
     <div class="grid two">
       <label class="f">천장 높이 cm<input type="number" data-r="height" value="${r.height}"></label>
       <label class="f">창문 아래 벽(창턱) cm<input type="number" data-r="sill" value="${r.sill ?? 80}"></label>
     </div>
-    <h4><span>바닥 꼭짓점 (cm)</span><span>${n}개</span></h4>
-    <table><tr><th>점</th><th>X</th><th>Z</th><th>다음 벽</th><th></th></tr>
-    ${r.outline.map((p, i) => `<tr><td>${i}</td>
-      <td><input type="number" step="5" data-pt="${i}" data-ax="0" value="${p[0]}"></td>
-      <td><input type="number" step="5" data-pt="${i}" data-ax="1" value="${p[1]}"></td>
-      <td>벽${i} ${segLen(i)}cm <label title="창문 벽"><input type="checkbox" data-win="${i}" ${r.windows?.includes(i) ? 'checked' : ''}>창</label></td>
-      <td><button class="btn" data-act="addpt" data-i="${i}" title="벽${i} 가운데에 점 추가">+</button><button class="btn danger" data-act="delpt" data-i="${i}" title="점 삭제">×</button></td></tr>`).join('')}
+    <div class="${g.closeErr > 5 ? 'issues' : 'okbox'}">실측 입력 <b>${measN}/${n}</b>벽 · 한 바퀴 돌았을 때 어긋남 <b>${g.closeErr.toFixed(1)}cm</b>
+      ${g.closeErr > 5 ? '<br>마지막 모서리가 A와 안 맞아요. 길이나 각도 중 틀린 값이 있는지 확인하세요.' : ''}</div>
+    <h4><span>벽 둘레 실측 (모서리 A부터 차례로, cm)</span><span>${n}개 벽</span></h4>
+    <table class="walls"><tr><th>벽</th><th>종류</th><th>추정</th><th>실측</th><th>끝 각°</th><th>휨</th><th></th></tr>
+    ${r.walls.map((w, i) => `<tr>
+      <td class="wn">${wn(i)}${w.memo ? `<span class="wm">${esc(w.memo)}</span>` : ''}</td>
+      <td><select data-w="${i}" data-k="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === (w.kind || 'wall') ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td><input type="number" data-w="${i}" data-k="len" value="${w.len}" title="영상 보고 추정한 길이"></td>
+      <td><input type="number" class="meas" data-w="${i}" data-k="measured" value="${w.measured > 0 ? w.measured : ''}" placeholder="잰 값" title="줄자로 잰 길이 — 넣으면 추정값 대신 사용"></td>
+      <td><input type="number" step="0.5" data-w="${i}" data-k="angle" value="${w.angle ?? 90}" title="${LET((i + 1) % n)} 모서리의 방 안쪽 각도 (직각 90, 기둥처럼 튀어나온 모서리 270, 일직선 180)"></td>
+      <td><input type="number" step="5" data-w="${i}" data-k="bulge" value="${w.bulge || 0}" title="곡면 벽이 가운데에서 바깥으로 불룩한 깊이 (안쪽으로 오목하면 음수)"></td>
+      <td style="white-space:nowrap"><button class="btn" data-act="addwall" data-i="${i}" title="이 벽 가운데에 모서리 추가">+</button><button class="btn danger" data-act="delwall" data-i="${i}" title="이 벽 삭제">×</button></td></tr>`).join('')}
     </table>
+    <p class="hint"><b>실측</b> 칸(초록)에 줄자로 잰 길이를 넣으면 그 값으로 다시 그려요. 3D 바닥의 빨간 동그라미 A·B·C…가 모서리 이름입니다.<br>
+    <b>끝 각°</b>: 그 벽이 끝나는 모서리에서 방 안쪽 각도 — 보통 90, 기둥 모서리처럼 방으로 튀어나온 곳은 270, 거의 일직선이면 180 근처.<br>
+    <b>휨</b>: 곡면 벽(창문벽 등)의 양 끝을 실로 이었을 때 가운데에서 벽까지 거리.<br>
+    모서리 좌표: ${g.corners.map((c, i) => `${LET(i)}(${Math.round(c[0])},${Math.round(c[1])})`).join(' ')}</p>
+    <div class="btns"><button class="btn" data-act="expmeas">실측 기입표 CSV(현장용)</button></div>
     <h4><span>문</span><span>${r.doors.length}개</span></h4>
     <table><tr><th>벽</th><th>중심위치</th><th>폭</th><th>높이</th><th>종류</th><th></th></tr>
     ${r.doors.map((d, i) => `<tr>
@@ -762,8 +853,14 @@ function renderRoom() {
     <h4><span>구역</span><span>${state.zones.length}개</span></h4>
     ${state.zones.map((z, i) => `<div class="snap"><input value="${esc(z.id)}" data-zone="${i}" data-k="id" style="width:50px"><input value="${esc(z.name)}" data-zone="${i}" data-k="name" style="flex:1"></div>`).join('')}
     <div class="btns"><button class="btn" data-act="addzone">+ 구역 추가</button></div>
-    <p class="hint">벽 i 는 점 i → 점 i+1 입니다. 문 "중심위치"는 그 벽의 시작점(점 i)에서 문 가운데까지 거리예요.
-    3D 화면 바닥의 분홍 글씨(벽 번호·길이)로 실측값과 맞는지 확인하세요. 점을 추가·삭제하면 문/창 벽 번호를 다시 확인해 주세요.</p>`;
+    <p class="hint">문 "중심위치"는 그 벽의 시작 모서리(예: A→B 면 A)에서 문 가운데까지 거리예요.</p>
+    <details><summary>출발 모서리 A 위치·방향 (보통 안 바꿔도 됨)</summary>
+      <div class="grid">
+        <label class="f">A의 X<input type="number" data-start="0" value="${r.start[0]}"></label>
+        <label class="f">A의 Z<input type="number" data-start="1" value="${r.start[1]}"></label>
+        <label class="f">A→B 방향°<input type="number" data-r="heading" value="${r.heading ?? 0}"></label>
+      </div>
+    </details>`;
 }
 
 function renderFile() {
@@ -825,11 +922,20 @@ panel.addEventListener('click', e => {
     case 'del':
       if (confirm(`"${it.name}"을(를) 목록에서 완전히 삭제할까요? (창고에서 빼기만 하려면 '창고에서 빼기')`)) { commit(() => { state.items = state.items.filter(x => x.id !== it.id); }); select(null); }
       return;
-    case 'addpt': {
-      const o = state.room.outline, a = o[i], b = o[(i + 1) % o.length];
-      return commit(() => o.splice(i + 1, 0, [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)]));
-    }
-    case 'delpt': if (state.room.outline.length > 3) commit(() => state.room.outline.splice(i, 1)); return;
+    case 'addwall': return commit(() => {
+      const ws = state.room.walls, w = ws[i], half = Math.round(effLen(w) / 2 * 10) / 10;
+      ws.splice(i + 1, 0, { ...clone(w), len: Math.round((effLen(w) - half) * 10) / 10, measured: null, bulge: 0, memo: '' });
+      Object.assign(w, { len: half, measured: null, angle: 180, bulge: 0 });
+      state.room.doors.forEach(d => { if (d.wall > i) d.wall++; else if (d.wall === i && d.offset > half) { d.wall = i + 1; d.offset -= half; } });
+    });
+    case 'delwall':
+      if (state.room.walls.length > 3 && confirm(`벽 ${LET(i)}→${LET((i + 1) % state.room.walls.length)} 을(를) 삭제할까요?`)) commit(() => {
+        state.room.walls.splice(i, 1);
+        state.room.doors = state.room.doors.filter(d => d.wall !== i);
+        state.room.doors.forEach(d => { if (d.wall > i) d.wall--; });
+      });
+      return;
+    case 'expmeas': return download(`실측기입표-v${state.meta.version}.csv`, measCSV(), 'text/csv');
     case 'adddoor': return commit(() => state.room.doors.push({ wall: 0, offset: 100, width: 90, height: 210, type: 'door' }));
     case 'deldoor': return commit(() => state.room.doors.splice(i, 1));
     case 'addzone': return commit(() => state.zones.push({ id: String.fromCharCode(65 + state.zones.length), name: '새 구역' }));
@@ -856,9 +962,12 @@ panel.addEventListener('change', e => {
   const v = 'num' in d || t.type === 'number' ? (parseFloat(t.value) || 0) : t.value;
   if (d.f) { const it = getItem(selectedId); return commit(() => { it[d.f] = v; }); }
   if (d.r) return commit(() => { state.room[d.r] = v; });
-  if (d.pt !== undefined) return commit(() => { state.room.outline[+d.pt][+d.ax] = v; });
-  if (d.win !== undefined) return commit(() => {
-    const w = new Set(state.room.windows || []); t.checked ? w.add(+d.win) : w.delete(+d.win); state.room.windows = [...w].sort((a, b) => a - b);
+  if (d.start !== undefined) return commit(() => { state.room.start[+d.start] = v; });
+  if (d.w !== undefined) return commit(() => {
+    const w = state.room.walls[+d.w];
+    if (d.k === 'kind') w.kind = v;
+    else if (d.k === 'measured') w.measured = t.value.trim() === '' ? null : v;
+    else w[d.k] = v;
   });
   if (d.door !== undefined) return commit(() => { state.room.doors[+d.door][d.k] = d.k === 'type' ? v : +v; });
   if (d.zone !== undefined) return commit(() => {
@@ -893,9 +1002,10 @@ function formatLayout(s) {
   "meta": ${JSON.stringify(s.meta)},
   "settings": ${JSON.stringify(s.settings || {})},
   "room": {
-    "height": ${r.height}, "sill": ${r.sill ?? 80},
-    "outline": ${JSON.stringify(r.outline)},
-    "windows": ${JSON.stringify(r.windows || [])},
+    "height": ${r.height}, "sill": ${r.sill ?? 80}, "start": ${JSON.stringify(r.start)}, "heading": ${r.heading ?? 0},
+    "walls": [
+${L(r.walls, '      ')}
+    ],
     "doors": [
 ${L(r.doors, '      ')}
     ]
@@ -911,9 +1021,17 @@ ${L(s.items, '    ')}
 function layoutJS() {
   return `// 창고 배치 데이터 (단위: cm) — 앱에서 내보냄 ${new Date().toLocaleString('ko-KR')}
 // - 좌표: X = 입구벽(0)에서 안쪽 방향, Z = 창문벽(0)에서 핑크벽 방향. x/z 는 바닥면 중심, y 는 띄운 높이.
-// - room.outline: 바닥 외곽 꼭짓점. 벽 i 는 점 i → 점 i+1. doors.offset 은 그 벽 시작점에서 문 중심까지 거리.
+// - room.walls: 모서리 A에서 출발해 한 바퀴 도는 벽 목록. len=추정 길이, measured=실측 길이(있으면 우선), angle=벽 끝 모서리의 방 안쪽 각도, bulge=곡면 휨 깊이.
+// - doors.wall 은 walls 순번(0=A→B), offset 은 그 벽 시작 모서리에서 문 중심까지 거리.
 window.WAREHOUSE_DEFAULT = ${formatLayout(state)};
 `;
+}
+function measCSV() {
+  const n = state.room.walls.length;
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = state.room.walls.map((w, i) => [`${LET(i)}→${LET((i + 1) % n)}`, KINDS[w.kind || 'wall'], w.len, w.measured || '', `${LET((i + 1) % n)}`, w.angle ?? 90, w.bulge || 0, w.memo || ''].map(q).join(','));
+  const doors = state.room.doors.map(d => [`문: ${d.name || ''}`, `${LET(d.wall)}→${LET((d.wall + 1) % n)} 위`, `중심 ${d.offset}`, `폭 ${d.width}`, '', `높이 ${d.height || 210}`, '', ''].map(q).join(','));
+  return '﻿' + [['벽', '종류', '추정길이cm', '실측길이cm', '끝 모서리', '안쪽각도°', '휨cm', '메모'].map(q).join(','), ...rows, '', `"천장 높이","","${state.room.height}",""`, ...doors].join('\r\n');
 }
 function toCSV() {
   const zn = Object.fromEntries(state.zones.map(z => [z.id, z.name]));
