@@ -5,21 +5,21 @@
 // - room.walls: 모서리 A에서 출발해 한 바퀴 도는 벽 목록. len=추정 길이, measured=실측 길이(있으면 우선), angle=벽 끝 모서리의 방 안쪽 각도, bulge=곡면 휨 깊이.
 // - doors.wall 은 walls 순번(0=A→B), offset 은 그 벽 시작 모서리에서 문 중심까지 거리.
 window.WAREHOUSE_DEFAULT = {
-  "meta": {"name":"울산과학대 창고","version":"0.3.0","updated":"2026-11-02","note":"공유 저장소(구글 시트) 연동 — 실측 전 추정 배치"},
+  "meta": {"name":"울산과학대 창고","version":"0.4.0","updated":"2026-11-02","note":"곡면 제거·직선 벽 정리(영상 휨은 광각 착시) — 평면도에서 모서리 끌어 맞추기"},
   "settings": {"snap":5},
   "room": {
     "height": 270, "sill": 80, "start": [0,450], "heading": -90,
     "walls": [
-      {"kind":"glass","len":200,"measured":null,"angle":178.6,"bulge":0,"memo":"입구 유리칸막이(문)"},
-      {"kind":"wall","len":210.1,"measured":null,"angle":94.1,"bulge":0,"memo":"입구쪽 끝벽(선반·캐비닛)"},
-      {"kind":"window","len":635.7,"measured":null,"angle":87.3,"bulge":50,"memo":"곡면 통창"},
+      {"kind":"glass","len":200,"measured":null,"angle":180,"bulge":0,"memo":"입구 유리칸막이(문)"},
+      {"kind":"wall","len":250,"measured":null,"angle":90,"bulge":0,"memo":"입구쪽 끝벽(선반·캐비닛)"},
+      {"kind":"window","len":640,"measured":null,"angle":90,"bulge":0,"memo":"통창"},
       {"kind":"wall","len":40,"measured":null,"angle":270,"bulge":0,"memo":"창가 기둥 옆면"},
       {"kind":"wall","len":60,"measured":null,"angle":270,"bulge":0,"memo":"창가 기둥 앞면"},
-      {"kind":"wall","len":30,"measured":null,"angle":90,"bulge":0,"memo":"창가 기둥 옆면"},
+      {"kind":"wall","len":40,"measured":null,"angle":90,"bulge":0,"memo":"창가 기둥 옆면"},
       {"kind":"window","len":100,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 좁은 창"},
-      {"kind":"wall","len":40,"measured":null,"angle":270,"bulge":0,"memo":"기둥(창 옆)"},
+      {"kind":"wall","len":50,"measured":null,"angle":270,"bulge":0,"memo":"기둥(창 옆)"},
       {"kind":"wall","len":200,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 창쪽 벽(선반)"},
-      {"kind":"wall","len":240,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 끝벽(책장)"},
+      {"kind":"wall","len":250,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 끝벽(책장)"},
       {"kind":"wall","len":350,"measured":null,"angle":270,"bulge":0,"memo":"안쪽창고 문쪽 벽"},
       {"kind":"wall","len":150,"measured":null,"angle":90,"bulge":0,"memo":"꺾인 벽(콘센트·파란보드)"},
       {"kind":"wall","len":650,"measured":null,"angle":90,"bulge":0,"memo":"긴 핑크벽"}
@@ -59,7 +59,7 @@ window.WAREHOUSE_DEFAULT = {
     {"id":"i21","zone":"C","name":"대형 골판지 박스","cat":"박스·잡화","type":"box","status":"미정","qty":1,"x":610,"z":70,"y":0,"w":60,"d":60,"h":110,"rot":0,"color":"#c8a272","placed":true,"memo":""},
     {"id":"i22","zone":"D","name":"오픈 책장(바인더)","cat":"수납가구","type":"shelf","status":"유지","qty":2,"x":982,"z":165,"y":0,"w":190,"d":35,"h":200,"rot":90,"color":"#b98a52","placed":true,"memo":"바인더·서류철"},
     {"id":"i23","zone":"D","name":"책장 위 박스(HP 등)","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":982,"z":165,"y":200,"w":180,"d":35,"h":35,"rot":90,"color":"#e8e8e8","placed":true,"memo":""},
-    {"id":"i24","zone":"D","name":"안쪽창고 창쪽 벽 선반","cat":"수납가구","type":"shelf","status":"미정","qty":1,"x":895,"z":80,"y":0,"w":120,"d":40,"h":200,"rot":0,"color":"#c9a46a","placed":true,"memo":""},
+    {"id":"i24","zone":"D","name":"안쪽창고 창쪽 벽 선반","cat":"수납가구","type":"shelf","status":"미정","qty":1,"x":895,"z":70,"y":0,"w":120,"d":40,"h":200,"rot":0,"color":"#c9a46a","placed":true,"memo":""},
     {"id":"i25","zone":"D","name":"이젤패드·박스 더미","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":820,"z":170,"y":0,"w":140,"d":90,"h":100,"rot":0,"color":"#f2d24b","placed":true,"memo":"포스트잇 이젤패드 등"},
     {"id":"i26","zone":"D","name":"잡동사니(녹색가방·의류)","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":900,"z":255,"y":0,"w":80,"d":60,"h":90,"rot":0,"color":"#3aa655","placed":true,"memo":"안쪽 문 앞을 막고 있음"},
     {"id":"i27","zone":"D","name":"골판지 판(기댐)","cat":"자재","type":"panel","status":"미정","qty":1,"x":715,"z":130,"y":0,"w":130,"d":10,"h":150,"rot":90,"color":"#c8a272","placed":true,"memo":""},
