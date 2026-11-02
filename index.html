@@ -32,6 +32,14 @@
   #hud { position: absolute; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; }
   #hud button, .btn { border: 1px solid var(--line); background: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
   #hud button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #cloud { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 8px; padding: 4px 4px 4px 10px; max-width: calc(100% - 20px); }
+  #cloud .msg { font-size: 12px; color: var(--muted); }
+  #cloud .msg.dirty { color: #c26a00; font-weight: 600; }
+  #cloud .msg.err { color: var(--warn); }
+  #cloud button { border: 1px solid var(--line); background: #fff; padding: 5px 9px; border-radius: 6px; cursor: pointer; font: inherit; }
+  #cloud button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  #cloud button:disabled { opacity: .45; cursor: default; }
+  @media (max-width: 800px) { #cloud { top: auto; bottom: 52px; } }
   #help { position: absolute; left: 10px; bottom: 10px; background: rgba(255,255,255,.88); border-radius: 6px; padding: 6px 10px; color: var(--muted); font-size: 12px; z-index: 2; max-width: calc(100% - 20px); }
   #panel { width: 430px; flex-shrink: 0; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   #panel header { padding: 12px 14px 8px; border-bottom: 1px solid var(--line); }
@@ -81,6 +89,7 @@
     .tab { max-height: none; }
   }
 </style>
+<script src="data/config.js"></script>
 <script src="data/layout.js"></script>
 <script type="importmap">
 { "imports": {
@@ -99,6 +108,7 @@
       <button id="btnLabels">이름표</button>
       <button id="btnUndo" title="Ctrl+Z">되돌리기</button>
     </div>
+    <div id="cloud"><span class="msg" id="cloudMsg"></span><span id="cloudBtns"></span></div>
     <div id="help">왼쪽 드래그: 회전 · 오른쪽 드래그: 화면 이동 · 휠: 확대 · <b>물품을 끌면 위치 이동</b>(Shift: 1cm 단위) · R: 90° 회전 · 방향키: 5cm 이동 · Del: 빼기 · Ctrl+Z: 되돌리기</div>
   </div>
   <aside id="panel">
@@ -159,7 +169,129 @@ function loadState() {
   const s = readJSON(STORE_KEY);
   return s && s.room && Array.isArray(s.room.walls) ? s : clone(window.WAREHOUSE_DEFAULT);
 }
-function saveState() { state.meta.updated = new Date().toISOString().slice(0, 10); writeJSON(STORE_KEY, state); }
+function saveState() {
+  state.meta.updated = new Date().toISOString().slice(0, 10);
+  writeJSON(STORE_KEY, state);
+  if (!cloud.dirty) { cloud.dirty = true; saveCloud(); renderCloud(); }
+}
+
+// ───────── 공유 저장소 (구글 시트) ─────────
+const API = String(window.WAREHOUSE_API || '').trim();
+const CLOUD_KEY = 'warehouse-cloud-v1';
+let cloud = Object.assign({ baseRev: 0, dirty: false, editor: '', passcode: '' }, readJSON(CLOUD_KEY) || {});
+const cs = { mode: API ? 'loading' : 'local', head: null, pending: null, busy: false, msg: '', history: null };
+function saveCloud() { writeJSON(CLOUD_KEY, cloud); }
+async function api(params, body) {
+  const url = API + (params ? (API.includes('?') ? '&' : '?') + new URLSearchParams(params) : '');
+  const res = await fetch(url, body ? { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' } } : { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+function applyServer(r) {
+  state = r.data;
+  cloud.baseRev = r.rev; cloud.dirty = false; saveCloud();
+  writeJSON(STORE_KEY, state);
+  cs.head = { rev: r.rev, savedAt: r.savedAt, editor: r.editor };
+  cs.pending = null;
+  undoStack.length = 0;
+  if (selectedId && !getItem(selectedId)) selectedId = null;
+  rebuildAll();
+}
+async function cloudLoad({ force = false } = {}) {
+  if (!API) return;
+  cs.busy = true; renderCloud();
+  try {
+    const r = await api({ action: 'latest' });
+    cs.mode = 'online';
+    if (!r.rev) { cs.head = { rev: 0 }; }
+    else if (force || !cloud.dirty || r.rev === cloud.baseRev) {
+      if (force || !cloud.dirty) applyServer(r); else cs.head = { rev: r.rev, savedAt: r.savedAt, editor: r.editor };
+    } else { cs.head = { rev: r.rev, savedAt: r.savedAt, editor: r.editor }; cs.pending = r; }
+  } catch (err) { cs.mode = 'offline'; cs.msg = err.message; }
+  cs.busy = false; renderCloud();
+}
+async function cloudPoll() {
+  if (!API || cs.busy || drag || document.hidden || cs.mode === 'loading') return;
+  try {
+    const h = await api({ action: 'rev' });
+    cs.mode = 'online';
+    if (h.rev && h.rev !== cloud.baseRev) {
+      if (!cloud.dirty) return cloudLoad();
+      if (!cs.pending || cs.pending.rev !== h.rev) cs.pending = { rev: h.rev, savedAt: h.savedAt, editor: h.editor };
+    }
+  } catch (err) { cs.mode = 'offline'; cs.msg = err.message; }
+  renderCloud();
+}
+async function cloudSave(force = false) {
+  if (!API || cs.busy) return;
+  if (!cloud.editor) {
+    const n = prompt('저장하는 사람 이름을 적어 주세요. (저장 이력에 남아요)', '');
+    if (!n || !n.trim()) return;
+    cloud.editor = n.trim(); saveCloud();
+  }
+  const note = prompt('무엇을 바꿨는지 짧게 적어 주세요. (비워도 됨)', '');
+  if (note === null) return;
+  cs.busy = true; renderCloud();
+  try {
+    const r = await api(null, { action: 'save', baseRev: cloud.baseRev, force, editor: cloud.editor, note, passcode: cloud.passcode, data: state });
+    if (r.ok) {
+      cloud.baseRev = r.rev; cloud.dirty = false; state.meta.rev = r.rev; saveCloud();
+      writeJSON(STORE_KEY, state);
+      cs.head = { rev: r.rev, savedAt: r.savedAt, editor: cloud.editor };
+      cs.pending = null; cs.history = null; cs.mode = 'online';
+    } else if (r.error === 'bad_passcode') {
+      const p = prompt('공유 암호가 필요해요. 관리자에게 받은 암호를 입력하세요.', '');
+      if (p) { cloud.passcode = p.trim(); saveCloud(); cs.busy = false; return cloudSave(force); }
+    } else if (r.error === 'conflict') {
+      cs.pending = r;
+      if (confirm(`${r.editor || '다른 사람'}님이 먼저 저장한 새 버전(r${r.rev})이 있어요.\n\n[확인] 내 변경은 버리고 새 버전 불러오기\n[취소] 내 변경 그대로 두기 (위의 "덮어쓰기"로 강제 저장 가능)`)) applyServer(r);
+    } else alert('저장 실패: ' + (r.error || '알 수 없음'));
+  } catch (err) { cs.mode = 'offline'; cs.msg = err.message; alert('공유 저장소에 연결하지 못했어요. 변경은 이 브라우저에 남아 있어요.\n' + err.message); }
+  cs.busy = false; renderCloud(); renderFile();
+}
+const fmtTime = s => { const d = new Date(s); return isNaN(d) ? '' : d.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+function renderCloud() {
+  const msg = document.getElementById('cloudMsg'), btns = document.getElementById('cloudBtns');
+  if (!msg) return;
+  let m = '', cls = 'msg', b = '';
+  if (cs.mode === 'local') { m = '이 브라우저에만 저장 중 (공유 저장소 미설정)'; }
+  else if (cs.mode === 'loading') { m = '공유 저장소 연결 중…'; }
+  else if (cs.mode === 'offline') { m = '⚠ 공유 저장소 연결 실패 — 이 브라우저에만 저장 중'; cls += ' err'; b = '<button data-cloud="reload">다시 연결</button>'; }
+  else {
+    const h = cs.head;
+    if (cloud.dirty) { m = '● 저장 안 된 변경 있음'; cls += ' dirty'; }
+    else if (h && h.rev) m = `✓ 공유 저장됨 r${h.rev} · ${esc(h.editor || '')} ${fmtTime(h.savedAt)}`;
+    else m = '공유 저장소 비어 있음 — 저장하면 r1 생성';
+    if (cs.pending) {
+      m += ` · <b>${esc(cs.pending.editor || '다른 사람')}님 새 버전 r${cs.pending.rev}</b>`;
+      b += '<button data-cloud="take">새 버전 불러오기</button><button data-cloud="force" title="새 버전을 무시하고 내 것으로 저장">덮어쓰기</button>';
+    }
+    b += `<button class="primary" data-cloud="save" ${cloud.dirty && !cs.busy ? '' : 'disabled'}>${cs.busy ? '저장 중…' : '☁ 저장'}</button>`;
+  }
+  msg.className = cls;
+  msg.innerHTML = m;
+  btns.innerHTML = b;
+}
+document.getElementById('cloud').addEventListener('click', e => {
+  const a = e.target.closest('[data-cloud]')?.dataset.cloud;
+  if (a === 'save') cloudSave(false);
+  else if (a === 'force') { if (confirm('다른 사람이 저장한 새 버전 위에 내 배치를 덮어쓸까요? (그 버전도 이력에는 남아요)')) cloudSave(true); }
+  else if (a === 'take') { if (!cloud.dirty || confirm('내 저장 안 된 변경을 버리고 새 버전을 불러올까요?')) cloudLoad({ force: true }); }
+  else if (a === 'reload') cloudLoad();
+});
+window.addEventListener('beforeunload', e => { if (API && cloud.dirty) { e.preventDefault(); e.returnValue = ''; } });
+async function loadHistory() {
+  try { cs.history = (await api({ action: 'history', limit: 50 })).versions || []; }
+  catch (err) { cs.history = []; alert('이력을 불러오지 못했어요: ' + err.message); }
+  renderFile();
+}
+async function openVersion(rev) {
+  try {
+    const r = await api({ action: 'version', rev });
+    if (!r.data) throw new Error('버전을 찾지 못함');
+    if (confirm(`r${rev} (${r.editor || ''} ${fmtTime(r.savedAt)}) 배치를 불러올까요?\n불러온 뒤 [☁ 저장]을 눌러야 모두에게 반영돼요.`)) commit(() => { state = r.data; });
+  } catch (err) { alert('불러오기 실패: ' + err.message); }
+}
 function saveUI() { writeJSON(UI_KEY, { labels: ui.labels, colorMode: ui.colorMode, tab: ui.tab }); }
 function getItem(id) { return state.items.find(i => i.id === id); }
 function commit(fn) {
@@ -865,13 +997,26 @@ function renderRoom() {
 
 function renderFile() {
   const snaps = readJSON(SNAP_KEY) || [];
+  const cloudBox = !API ? `<div class="issues">공유 저장소가 아직 연결되지 않았어요. 지금은 이 브라우저에만 저장돼요.<br>
+      README의 "공유 저장소 설치"대로 구글 시트를 만들고 data/config.js 에 주소를 넣으면 모두 같이 저장돼요.</div>` : `
+    <h4><span>공유 저장 (구글 시트)</span><span>${cs.head?.rev ? 'r' + cs.head.rev : ''}</span></h4>
+    <div class="grid two">
+      <label class="f">내 이름 (이력에 남음)<input data-cloudf="editor" value="${esc(cloud.editor)}" placeholder="예: 김준일"></label>
+      <label class="f">공유 암호 (설정한 경우만)<input type="password" data-cloudf="passcode" value="${esc(cloud.passcode)}"></label>
+    </div>
+    <div class="btns"><button class="btn" data-act="hist">저장 이력 보기</button></div>
+    ${cs.history ? (cs.history.length ? cs.history.map(v => `<div class="snap"><span>r${v.rev} · ${esc(v.editor || '?')} <span class="sz">${fmtTime(v.savedAt)} · ${v.items}종</span>${v.note ? `<br><span class="sz">${esc(v.note)}</span>` : ''}</span>
+      <button class="btn" data-act="histload" data-i="${v.rev}">이 버전 불러오기</button></div>`).join('') : '<p class="hint">아직 저장된 버전이 없어요.</p>') : ''}`;
   el('tab-file').innerHTML = `
+    ${cloudBox}
+    <h4><span>버전 정보</span><span></span></h4>
     <div class="grid two">
       <label class="f">이름<input data-meta="name" value="${esc(state.meta.name)}"></label>
       <label class="f">버전<input data-meta="version" value="${esc(state.meta.version)}"></label>
       <label class="f full">버전 메모<textarea data-meta="note" rows="2">${esc(state.meta.note)}</textarea></label>
     </div>
-    <p class="hint">변경 내용은 이 브라우저에 자동 저장됩니다. 확정본은 아래 "layout.js 내보내기"로 받아 <b>data/layout.js</b>를 교체하고 git commit 하면 버전 이력으로 남아요.</p>
+    <p class="hint">${API ? '모두가 보는 배치는 위쪽 [☁ 저장]으로 공유 저장소에 저장돼요. 아래 내보내기는 백업·깃허브 기록용이에요.' : '변경 내용은 이 브라우저에 자동 저장됩니다.'}
+    확정본을 깃허브에도 남기려면 "layout.js 내보내기"로 받아 <b>data/layout.js</b>를 교체하고 커밋하세요.</p>
     <div class="btns">
       <button class="btn primary" data-act="expjs">layout.js 내보내기</button>
       <button class="btn" data-act="expcsv">물품목록 CSV(엑셀)</button>
@@ -935,6 +1080,8 @@ panel.addEventListener('click', e => {
         state.room.doors.forEach(d => { if (d.wall > i) d.wall--; });
       });
       return;
+    case 'hist': return loadHistory();
+    case 'histload': return openVersion(i);
     case 'expmeas': return download(`실측기입표-v${state.meta.version}.csv`, measCSV(), 'text/csv');
     case 'adddoor': return commit(() => state.room.doors.push({ wall: 0, offset: 100, width: 90, height: 210, type: 'door' }));
     case 'deldoor': return commit(() => state.room.doors.splice(i, 1));
@@ -976,6 +1123,7 @@ panel.addEventListener('change', e => {
     z[d.k] = v;
   });
   if (d.meta) return commit(() => { state.meta[d.meta] = v; });
+  if (d.cloudf) { cloud[d.cloudf] = t.value.trim(); saveCloud(); return; }
   if (t.id === 'importFile' && t.files[0]) {
     const fr = new FileReader();
     fr.onload = () => {
@@ -1084,6 +1232,8 @@ rebuildAll();
 setTab(ui.tab === 'edit' ? 'list' : ui.tab);
 view3D();
 tick();
+renderCloud();
+if (API) { cloudLoad(); setInterval(cloudPoll, 45000); }
 </script>
 </body>
 </html>

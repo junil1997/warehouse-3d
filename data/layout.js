@@ -5,7 +5,7 @@
 // - room.walls: 모서리 A에서 출발해 한 바퀴 도는 벽 목록. len=추정 길이, measured=실측 길이(있으면 우선), angle=벽 끝 모서리의 방 안쪽 각도, bulge=곡면 휨 깊이.
 // - doors.wall 은 walls 순번(0=A→B), offset 은 그 벽 시작 모서리에서 문 중심까지 거리.
 window.WAREHOUSE_DEFAULT = {
-  "meta": {"name":"울산과학대 창고","version":"0.2.0","updated":"2026-11-02","note":"동영상 재분석: 곡면 창문벽·창가 기둥·비스듬한 입구벽 반영, 모서리별 실측 입력칸"},
+  "meta": {"name":"울산과학대 창고","version":"0.3.0","updated":"2026-11-02","note":"공유 저장소(구글 시트) 연동 — 실측 전 추정 배치"},
   "settings": {"snap":5},
   "room": {
     "height": 270, "sill": 80, "start": [0,450], "heading": -90,
