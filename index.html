@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache">
 <title>창고 3D 배치</title>
 <style>
   :root {
@@ -89,8 +90,10 @@
     .tab { max-height: none; }
   }
 </style>
-<script src="data/config.js"></script>
-<script src="data/layout.js"></script>
+<script>
+  // 데이터 파일은 항상 최신으로 (브라우저 캐시 때문에 예전 배치가 보이지 않게)
+  document.write('<script src="data/config.js?t=' + Date.now() + '"><\/script><script src="data/layout.js?t=' + Date.now() + '"><\/script>');
+</script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -158,6 +161,7 @@ const TYPES = { box: '박스/일반', cabinet: '도어 캐비닛', glasscab: '�
 const clone = o => JSON.parse(JSON.stringify(o));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+let archivedFrom = null;
 let state = loadState();
 let ui = Object.assign({ labels: true, colorMode: 'color', tab: 'list', q: '', filter: 'all' }, readJSON(UI_KEY) || {});
 let selectedId = null;
@@ -167,8 +171,17 @@ const undoStack = [];
 function readJSON(key) { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
 function writeJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
 function loadState() {
-  const s = readJSON(STORE_KEY);
-  return s && s.room && Array.isArray(s.room.walls) ? s : clone(window.WAREHOUSE_DEFAULT);
+  const s = readJSON(STORE_KEY), def = window.WAREHOUSE_DEFAULT;
+  if (!(s && s.room && Array.isArray(s.room.walls))) return clone(def);
+  if (!String(window.WAREHOUSE_API || '').trim() && s.meta?.version !== def.meta.version) {
+    // 새 기본 배치(data/layout.js)가 올라옴 → 이 브라우저의 이전 작업은 스냅샷으로 보관하고 새 배치로 시작
+    const snaps = readJSON(SNAP_KEY) || [];
+    snaps.unshift({ name: `자동 보관: 이전 작업 (v${s.meta?.version || '?'})`, date: new Date().toLocaleString('ko-KR'), data: s });
+    writeJSON(SNAP_KEY, snaps);
+    archivedFrom = s.meta?.version || '?';
+    return clone(def);
+  }
+  return s;
 }
 function saveState() {
   state.meta.updated = new Date().toISOString().slice(0, 10);
@@ -255,7 +268,11 @@ function renderCloud() {
   const msg = document.getElementById('cloudMsg'), btns = document.getElementById('cloudBtns');
   if (!msg) return;
   let m = '', cls = 'msg', b = '';
-  if (cs.mode === 'local') { m = '이 브라우저에만 저장 중 (공유 저장소 미설정)'; }
+  if (cs.mode === 'local') {
+    m = archivedFrom
+      ? `새 배치 v${esc(state.meta.version)} 적용됨 — 이 브라우저의 이전 작업(v${esc(archivedFrom)})은 [저장·버전] 스냅샷에 보관`
+      : '이 브라우저에만 저장 중 (공유 저장소 미설정)';
+  }
   else if (cs.mode === 'loading') { m = '공유 저장소 연결 중…'; }
   else if (cs.mode === 'offline') { m = '⚠ 공유 저장소 연결 실패 — 이 브라우저에만 저장 중'; cls += ' err'; b = '<button data-cloud="reload">다시 연결</button>'; }
   else {
