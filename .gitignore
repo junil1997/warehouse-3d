@@ -1,0 +1,10 @@
+# 원본 촬영 영상·사진은 용량이 커서 저장소에 넣지 않음
+*.mp4
+*.mov
+*.MOV
+*.avi
+# 로컬 설정
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+desktop.ini
