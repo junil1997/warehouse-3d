@@ -5,13 +5,15 @@
 // - room.walls: 모서리 A에서 출발해 한 바퀴 도는 벽 목록. len=추정 길이, measured=실측 길이(있으면 우선), angle=벽 끝 모서리의 방 안쪽 각도, bulge=곡면 휨 깊이.
 // - doors.wall 은 walls 순번(0=A→B), offset 은 그 벽 시작 모서리에서 문 중심까지 거리.
 window.WAREHOUSE_DEFAULT = {
-  "meta": {"name":"울산과학대 창고","version":"0.4.1","updated":"2026-11-02","note":"유리 출입문을 긴 핑크벽(판넬 옆)으로 이동 — 직선 벽, 추정 치수"},
+  "meta": {"name":"울산과학대 창고","version":"0.4.2","updated":"2026-11-02","note":"유리문 옆 짧은 벽 후 끝벽이 바깥으로 물러난 구조 반영 — 추정 치수"},
   "settings": {"snap":5},
   "room": {
     "height": 270, "sill": 80, "start": [0,450], "heading": -90,
     "walls": [
-      {"kind":"wall","len":450,"measured":null,"angle":90,"bulge":0,"memo":"입구쪽 끝벽(선반·캐비닛)"},
-      {"kind":"window","len":640,"measured":null,"angle":90,"bulge":0,"memo":"통창"},
+      {"kind":"wall","len":100,"measured":null,"angle":270,"bulge":0,"memo":"문 옆 짧은 벽"},
+      {"kind":"wall","len":40,"measured":null,"angle":90,"bulge":0,"memo":"벽이 바깥으로 물러난 면"},
+      {"kind":"wall","len":350,"measured":null,"angle":90,"bulge":0,"memo":"입구쪽 끝벽(선반·캐비닛)"},
+      {"kind":"window","len":680,"measured":null,"angle":90,"bulge":0,"memo":"통창"},
       {"kind":"wall","len":40,"measured":null,"angle":270,"bulge":0,"memo":"창가 기둥 옆면"},
       {"kind":"wall","len":60,"measured":null,"angle":270,"bulge":0,"memo":"창가 기둥 앞면"},
       {"kind":"wall","len":40,"measured":null,"angle":90,"bulge":0,"memo":"창가 기둥 옆면"},
@@ -25,8 +27,8 @@ window.WAREHOUSE_DEFAULT = {
       {"kind":"glass","len":180,"measured":null,"angle":90,"bulge":0,"memo":"유리칸막이(고정창+여닫이 유리문)"}
     ],
     "doors": [
-      {"wall":12,"offset":125,"width":100,"height":230,"type":"glass","name":"여닫이 유리 출입문"},
-      {"wall":9,"offset":55,"width":90,"height":210,"type":"door","name":"안쪽 문"}
+      {"wall":14,"offset":125,"width":100,"height":230,"type":"glass","name":"여닫이 유리 출입문"},
+      {"wall":11,"offset":55,"width":90,"height":210,"type":"door","name":"안쪽 문"}
     ]
   },
   "zones": [
@@ -36,9 +38,9 @@ window.WAREHOUSE_DEFAULT = {
     {"id":"D","name":"D 안쪽 창고"}
   ],
   "items": [
-    {"id":"i01","zone":"A","name":"오픈 칸막이 선반(큐비)","cat":"수납가구","type":"shelf","status":"미정","qty":1,"x":26,"z":120,"y":0,"w":120,"d":40,"h":120,"rot":270,"color":"#c9a46a","placed":true,"memo":"라벨 붙은 칸막이 선반"},
-    {"id":"i02","zone":"A","name":"2도어 목재 캐비닛","cat":"수납가구","type":"cabinet","status":"미정","qty":1,"x":29,"z":235,"y":0,"w":90,"d":45,"h":180,"rot":270,"color":"#d2ad72","placed":true,"memo":""},
-    {"id":"i03","zone":"A","name":"박스(캐비닛 앞)","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":85,"z":235,"y":0,"w":60,"d":45,"h":55,"rot":0,"color":"#c8a272","placed":true,"memo":""},
+    {"id":"i01","zone":"A","name":"오픈 칸막이 선반(큐비)","cat":"수납가구","type":"shelf","status":"미정","qty":1,"x":-20,"z":120,"y":0,"w":120,"d":40,"h":120,"rot":270,"color":"#c9a46a","placed":true,"memo":"라벨 붙은 칸막이 선반"},
+    {"id":"i02","zone":"A","name":"2도어 목재 캐비닛","cat":"수납가구","type":"cabinet","status":"미정","qty":1,"x":-17,"z":235,"y":0,"w":90,"d":45,"h":180,"rot":270,"color":"#d2ad72","placed":true,"memo":""},
+    {"id":"i03","zone":"A","name":"박스(캐비닛 앞)","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":45,"z":235,"y":0,"w":60,"d":45,"h":55,"rot":0,"color":"#c8a272","placed":true,"memo":""},
     {"id":"i04","zone":"B","name":"목재 판넬·타공판 묶음","cat":"자재","type":"panel","status":"미정","qty":3,"x":245,"z":440,"y":0,"w":120,"d":15,"h":200,"rot":180,"color":"#6b4a2b","placed":true,"memo":"벽에 기대어 둠"},
     {"id":"i05","zone":"B","name":"진공청소기","cat":"장비","type":"box","status":"유지","qty":1,"x":230,"z":405,"y":0,"w":35,"d":45,"h":45,"rot":0,"color":"#e9e4d6","placed":true,"memo":""},
     {"id":"i06","zone":"B","name":"베이지 2도어 캐비닛","cat":"수납가구","type":"cabinet","status":"미정","qty":1,"x":355,"z":427,"y":0,"w":90,"d":45,"h":190,"rot":180,"color":"#e6dcc3","placed":true,"memo":""},
