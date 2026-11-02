@@ -5,7 +5,7 @@
 // - room.walls: 모서리 A에서 출발해 한 바퀴 도는 벽 목록. len=추정 길이, measured=실측 길이(있으면 우선), angle=벽 끝 모서리의 방 안쪽 각도, bulge=곡면 휨 깊이.
 // - doors.wall 은 walls 순번(0=A→B), offset 은 그 벽 시작 모서리에서 문 중심까지 거리.
 window.WAREHOUSE_DEFAULT = {
-  "meta": {"name":"울산과학대 창고","version":"0.4.2","updated":"2026-11-02","note":"유리문 옆 짧은 벽 후 끝벽이 바깥으로 물러난 구조 반영 — 추정 치수"},
+  "meta": {"name":"울산과학대 창고","version":"0.4.3","updated":"2026-11-02","note":"창가 기둥 제거: 꺾인 벽 뒤로 통유리창이 안쪽창고까지 이어짐 — 추정 치수"},
   "settings": {"snap":5},
   "room": {
     "height": 270, "sill": 80, "start": [0,450], "heading": -90,
@@ -14,21 +14,18 @@ window.WAREHOUSE_DEFAULT = {
       {"kind":"wall","len":40,"measured":null,"angle":90,"bulge":0,"memo":"벽이 바깥으로 물러난 면"},
       {"kind":"wall","len":350,"measured":null,"angle":90,"bulge":0,"memo":"입구쪽 끝벽(선반·캐비닛)"},
       {"kind":"window","len":680,"measured":null,"angle":90,"bulge":0,"memo":"통창"},
-      {"kind":"wall","len":40,"measured":null,"angle":270,"bulge":0,"memo":"창가 기둥 옆면"},
-      {"kind":"wall","len":60,"measured":null,"angle":270,"bulge":0,"memo":"창가 기둥 앞면"},
-      {"kind":"wall","len":40,"measured":null,"angle":90,"bulge":0,"memo":"창가 기둥 옆면"},
-      {"kind":"window","len":100,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 좁은 창"},
-      {"kind":"wall","len":50,"measured":null,"angle":270,"bulge":0,"memo":"기둥(창 옆)"},
+      {"kind":"wall","len":40,"measured":null,"angle":270,"bulge":0,"memo":"창 사이 꺾인 벽"},
+      {"kind":"window","len":160,"measured":null,"angle":180,"bulge":0,"memo":"통유리창(안쪽창고까지 이어짐)"},
       {"kind":"wall","len":200,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 창쪽 벽(선반)"},
-      {"kind":"wall","len":250,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 끝벽(책장)"},
+      {"kind":"wall","len":260,"measured":null,"angle":90,"bulge":0,"memo":"안쪽창고 끝벽(책장)"},
       {"kind":"wall","len":350,"measured":null,"angle":270,"bulge":0,"memo":"안쪽창고 문쪽 벽"},
       {"kind":"wall","len":150,"measured":null,"angle":90,"bulge":0,"memo":"꺾인 벽(콘센트·파란보드)"},
       {"kind":"wall","len":470,"measured":null,"angle":180,"bulge":0,"memo":"긴 핑크벽(판넬·캐비닛)"},
       {"kind":"glass","len":180,"measured":null,"angle":90,"bulge":0,"memo":"유리칸막이(고정창+여닫이 유리문)"}
     ],
     "doors": [
-      {"wall":14,"offset":125,"width":100,"height":230,"type":"glass","name":"여닫이 유리 출입문"},
-      {"wall":11,"offset":55,"width":90,"height":210,"type":"door","name":"안쪽 문"}
+      {"wall":11,"offset":125,"width":100,"height":230,"type":"glass","name":"여닫이 유리 출입문"},
+      {"wall":8,"offset":55,"width":90,"height":210,"type":"door","name":"안쪽 문"}
     ]
   },
   "zones": [
@@ -61,7 +58,7 @@ window.WAREHOUSE_DEFAULT = {
     {"id":"i21","zone":"C","name":"대형 골판지 박스","cat":"박스·잡화","type":"box","status":"미정","qty":1,"x":610,"z":70,"y":0,"w":60,"d":60,"h":110,"rot":0,"color":"#c8a272","placed":true,"memo":""},
     {"id":"i22","zone":"D","name":"오픈 책장(바인더)","cat":"수납가구","type":"shelf","status":"유지","qty":2,"x":982,"z":165,"y":0,"w":190,"d":35,"h":200,"rot":90,"color":"#b98a52","placed":true,"memo":"바인더·서류철"},
     {"id":"i23","zone":"D","name":"책장 위 박스(HP 등)","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":982,"z":165,"y":200,"w":180,"d":35,"h":35,"rot":90,"color":"#e8e8e8","placed":true,"memo":""},
-    {"id":"i24","zone":"D","name":"안쪽창고 창쪽 벽 선반","cat":"수납가구","type":"shelf","status":"미정","qty":1,"x":895,"z":70,"y":0,"w":120,"d":40,"h":200,"rot":0,"color":"#c9a46a","placed":true,"memo":""},
+    {"id":"i24","zone":"D","name":"안쪽창고 창쪽 벽 선반","cat":"수납가구","type":"shelf","status":"미정","qty":1,"x":895,"z":60,"y":0,"w":120,"d":40,"h":200,"rot":0,"color":"#c9a46a","placed":true,"memo":""},
     {"id":"i25","zone":"D","name":"이젤패드·박스 더미","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":820,"z":170,"y":0,"w":140,"d":90,"h":100,"rot":0,"color":"#f2d24b","placed":true,"memo":"포스트잇 이젤패드 등"},
     {"id":"i26","zone":"D","name":"잡동사니(녹색가방·의류)","cat":"박스·잡화","type":"pile","status":"미정","qty":1,"x":900,"z":255,"y":0,"w":80,"d":60,"h":90,"rot":0,"color":"#3aa655","placed":true,"memo":"안쪽 문 앞을 막고 있음"},
     {"id":"i27","zone":"D","name":"골판지 판(기댐)","cat":"자재","type":"panel","status":"미정","qty":1,"x":715,"z":130,"y":0,"w":130,"d":10,"h":150,"rot":90,"color":"#c8a272","placed":true,"memo":""},
