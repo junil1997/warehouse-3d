@@ -565,7 +565,7 @@ function buildRoom() {
     const w = state.room.walls[gw.i];
     const el = document.createElement('div');
     el.className = 'dim wall' + (w.measured > 0 ? ' ok' : '');
-    el.textContent = `${LET(gw.i)}–${LET((gw.i + 1) % nW)} ${Math.round(effLen(w))}cm${w.measured > 0 ? ' ✓' : ' (추정)'}`;
+    el.textContent = `${LET(gw.i)}–${LET((gw.i + 1) % nW)} ${Math.round(effLen(w))}cm${w.measured > 0 ? ' ✓' : ` (${state.room.source || '추정'})`}`;
     const lab = new CSS2DObject(el);
     lab.position.set((gw.mid[0] - gw.out[0] * 32) * S, 0.02, (gw.mid[1] - gw.out[1] * 32) * S);
     dimGroup.add(lab);
@@ -1114,11 +1114,11 @@ function renderRoom() {
     <div class="${g.closeErr > 5 ? 'issues' : 'okbox'}">실측 입력 <b>${measN}/${n}</b>벽 · 한 바퀴 돌았을 때 어긋남 <b>${g.closeErr.toFixed(1)}cm</b>
       ${g.closeErr > 5 ? '<br>마지막 모서리가 A와 안 맞아요. 길이나 각도 중 틀린 값이 있는지 확인하세요.' : ''}</div>
     <h4><span>벽 둘레 실측 (모서리 A부터 차례로, cm)</span><span>${n}개 벽</span></h4>
-    <table class="walls"><tr><th>벽</th><th>종류</th><th>추정</th><th>실측</th><th>끝 각°</th><th>휨</th><th></th></tr>
+    <table class="walls"><tr><th>벽</th><th>종류</th><th>${esc(r.source || '추정')}</th><th>실측</th><th>끝 각°</th><th>휨</th><th></th></tr>
     ${r.walls.map((w, i) => `<tr>
       <td class="wn">${wn(i)}${w.memo ? `<span class="wm">${esc(w.memo)}</span>` : ''}</td>
       <td><select data-w="${i}" data-k="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === (w.kind || 'wall') ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
-      <td><input type="number" data-w="${i}" data-k="len" value="${w.len}" title="영상 보고 추정한 길이"></td>
+      <td><input type="number" data-w="${i}" data-k="len" value="${w.len}" title="${esc(r.source || '추정')} 기준 길이"></td>
       <td><input type="number" class="meas" data-w="${i}" data-k="measured" value="${w.measured > 0 ? w.measured : ''}" placeholder="잰 값" title="줄자로 잰 길이 — 넣으면 추정값 대신 사용"></td>
       <td><input type="number" step="0.5" data-w="${i}" data-k="angle" value="${w.angle ?? 90}" title="${LET((i + 1) % n)} 모서리의 방 안쪽 각도 (직각 90, 기둥처럼 튀어나온 모서리 270, 일직선 180)"></td>
       <td><input type="number" step="5" data-w="${i}" data-k="bulge" value="${w.bulge || 0}" title="곡면 벽이 가운데에서 바깥으로 불룩한 깊이 (안쪽으로 오목하면 음수)"></td>
@@ -1309,7 +1309,7 @@ function formatLayout(s) {
   "meta": ${JSON.stringify(s.meta)},
   "settings": ${JSON.stringify(s.settings || {})},
   "room": {
-    "height": ${r.height}, "sill": ${r.sill ?? 80}, "start": ${JSON.stringify(r.start)}, "heading": ${r.heading ?? 0},
+    "height": ${r.height}, "sill": ${r.sill ?? 80}, "start": ${JSON.stringify(r.start)}, "heading": ${r.heading ?? 0}, "source": ${JSON.stringify(r.source || '추정')},
     "walls": [
 ${L(r.walls, '      ')}
     ],
