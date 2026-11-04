@@ -16,6 +16,7 @@
   #viewport { position: relative; flex: 1; min-width: 0; overflow: hidden; }
   #viewport canvas { display: block; }
   .labels { position: absolute; inset: 0; pointer-events: none; }
+  .labels.measure .lbl { display: none; }
   .lbl { font-size: 11px; background: rgba(255,255,255,.85); border: 1px solid rgba(0,0,0,.12); padding: 1px 5px; border-radius: 4px; white-space: nowrap; color: #333; }
   .lbl.sel { background: #ffb000; color: #000; font-weight: 600; }
   .lbl.warn { border-color: var(--warn); color: var(--warn); }
@@ -23,6 +24,18 @@
   .dim.wall { color: #b0475c; font-weight: 600; }
   .dim.wall.ok { color: #1b7f3b; }
   .corner { font-size: 13px; font-weight: 800; color: #fff; background: #b0475c; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .dimin { display: flex; align-items: center; gap: 3px; background: rgba(255,255,255,.96); border: 1px solid #d9a9b5; border-radius: 6px; padding: 1px 3px 1px 5px; font-size: 11px; font-weight: 700; color: #b0475c; white-space: nowrap; pointer-events: auto; }
+  .dimin:focus-within { z-index: 99999 !important; box-shadow: 0 0 0 2px var(--accent); }
+  .dimin.ok { border-color: #1b7f3b; background: #f3fbf5; color: #1b7f3b; }
+  .dimin.ang { padding-left: 1px; color: var(--muted); font-weight: 400; border-color: var(--line); }
+  .dimin .corner { width: 20px; height: 20px; font-size: 12px; }
+  .dimin input { width: 46px; padding: 1px 3px; font-size: 12px; text-align: right; user-select: text; -moz-appearance: textfield; appearance: textfield; }
+  .dimin.ang input { width: 40px; }
+  .dimin input::-webkit-inner-spin-button, #measbar input::-webkit-inner-spin-button { display: none; }
+  #measbar { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+  #measbar[hidden] { display: none; }
+  #measbar input { width: 58px; padding: 2px 4px; text-align: right; }
+  #measbar b { color: #1b7f3b; }
   .okbox { background: #e8f5ec; color: #1b7f3b; border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
   table.walls td { padding: 2px 1px; }
   table.walls input, table.walls select { padding: 4px 4px; font-size: 12px; }
@@ -110,7 +123,9 @@
       <button id="btnColor">상태별 색</button>
       <button id="btnLabels">이름표</button>
       <button id="btnUndo" title="Ctrl+Z">되돌리기</button>
+      <button id="btnMeasure" title="평면도 위 모서리·벽마다 줄자 값과 천장 높이 넣기">📏 치수 기입</button>
       <button id="btnRoomEdit" title="평면도에서 모서리를 끌어 벽 모양 바꾸기">✏ 벽 모양 편집</button>
+      <div id="measbar" hidden></div>
     </div>
     <div id="cloud"><span class="msg" id="cloudMsg"></span><span id="cloudBtns"></span></div>
     <div id="help">왼쪽 드래그: 회전 · 오른쪽 드래그: 화면 이동 · 휠: 확대 · <b>물품을 끌면 위치 이동</b>(Shift: 1cm 단위) · R: 90° 회전 · 방향키: 5cm 이동 · Del: 빼기 · Ctrl+Z: 되돌리기</div>
@@ -159,6 +174,7 @@ const S = 0.01; // cm → 3D 단위(m)
 const STATUS = { '미정': '#9aa0a6', '유지': '#43a047', '이동': '#1e88e5', '폐기': '#e53935' };
 const TYPES = { box: '박스/일반', cabinet: '도어 캐비닛', glasscab: '유리장', shelf: '오픈 선반', rack: '옷 행거', cart: '핸드카트', stand: '스탠드', beanbag: '빈백', soft: '이불·쿠션', panel: '판넬(기댐)', pile: '잡동사니 더미' };
 const clone = o => JSON.parse(JSON.stringify(o));
+const isBuilding = it => it.cat === '건물'; // 기둥 등 건물 일부 — 가구 전체 빼기에서 제외
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let archivedFrom = null;
@@ -440,6 +456,13 @@ function computeGeom() {
   });
   geom = { corners, walls, outline: walls.flatMap(w => w.pts.slice(0, -1)), closeErr, sgn };
 }
+function cornerAngle(i) {
+  const c = geom.corners, n = c.length, [x, z] = c[i], [px, pz] = c[(i - 1 + n) % n], [qx, qz] = c[(i + 1) % n];
+  let t = (Math.atan2(qz - z, qx - x) - Math.atan2(z - pz, x - px)) * 180 / Math.PI;
+  while (t <= -180) t += 360;
+  while (t > 180) t -= 360;
+  return Math.round((180 - t) * 10) / 10;
+}
 // 모서리 좌표 → 벽 길이·각도 (평면도에서 모서리를 끌었을 때)
 function setCorners(cs) {
   const r = state.room, n = cs.length, r1 = v => Math.round(v * 10) / 10;
@@ -564,10 +587,17 @@ function buildRoom() {
     // 벽 이름·길이 (실측이면 초록)
     const w = state.room.walls[gw.i];
     const el = document.createElement('div');
-    el.className = 'dim wall' + (w.measured > 0 ? ' ok' : '');
-    el.textContent = `${LET(gw.i)}–${LET((gw.i + 1) % nW)} ${Math.round(effLen(w))}cm${w.measured > 0 ? ' ✓' : ` (${state.room.source || '추정'})`}`;
+    const wname = `${LET(gw.i)}–${LET((gw.i + 1) % nW)}`;
+    if (ui.measure) {
+      el.className = 'dimin' + (w.measured > 0 ? ' ok' : '');
+      el.innerHTML = `${wname}<input type="number" min="1" step="0.1" data-dim="w${gw.i}" tabindex="${gw.i + 3}" value="${w.measured > 0 ? w.measured : ''}" placeholder="${Math.round(w.len)}" title="${wname} 줄자로 잰 길이(cm) — 비우면 ${esc(state.room.source || '추정')} 값 ${Math.round(w.len)}cm 사용">`;
+    } else {
+      el.className = 'dim wall' + (w.measured > 0 ? ' ok' : '');
+      el.textContent = `${wname} ${Math.round(effLen(w))}cm${w.measured > 0 ? ' ✓' : ` (${state.room.source || '추정'})`}`;
+    }
     const lab = new CSS2DObject(el);
-    lab.position.set((gw.mid[0] - gw.out[0] * 32) * S, 0.02, (gw.mid[1] - gw.out[1] * 32) * S);
+    const off = ui.measure ? 35 + 50 * Math.abs(gw.out[0]) : -32; // 치수 기입 중엔 벽 바깥에 입력칸 (가로로 긴 칸이라 옆쪽은 더 띄움)
+    lab.position.set((gw.mid[0] + gw.out[0] * off) * S, 0.02, (gw.mid[1] + gw.out[1] * off) * S);
     dimGroup.add(lab);
   }
 
@@ -587,16 +617,25 @@ function buildRoom() {
     handles.push(h);
     const ol = Math.hypot(ox, oz) || 1;
     const el = document.createElement('div');
-    el.className = 'corner';
-    el.textContent = LET(i);
+    if (ui.measure) {
+      el.className = 'dimin ang';
+      const a = i ? state.room.walls[i - 1].angle ?? 90 : cornerAngle(0); // A 각도는 나머지 벽으로 정해짐
+      el.innerHTML = `<span class="corner">${LET(i)}</span><input type="number" step="0.1" data-dim="a${i}" tabindex="${nW + 3 + i}" value="${a}" ${i ? '' : 'disabled'} title="${LET(i)} 모서리의 방 안쪽 각도 (직각 90, 방으로 튀어나온 모서리 270, 일직선 180)">°`;
+    } else {
+      el.className = 'corner';
+      el.textContent = LET(i);
+    }
     const lab = new CSS2DObject(el);
-    lab.position.set((cx - ox / ol * 18) * S, 0.05, (cz - oz / ol * 18) * S);
+    const inset = ui.measure ? 48 : 18;
+    lab.position.set((cx - ox / ol * inset) * S, 0.05, (cz - oz / ol * inset) * S);
     dimGroup.add(lab);
   });
 
   // 1m 눈금
-  for (let x = Math.ceil(bounds.minX / 100) * 100; x <= bounds.maxX; x += 100) addDim(`${x / 100}m`, x, bounds.minZ - 45);
-  for (let z = Math.ceil(bounds.minZ / 100) * 100; z <= bounds.maxZ; z += 100) addDim(`${z / 100}m`, bounds.minX - 50, z);
+  if (!ui.measure) {
+    for (let x = Math.ceil(bounds.minX / 100) * 100; x <= bounds.maxX; x += 100) addDim(`${x / 100}m`, x, bounds.minZ - 45);
+    for (let z = Math.ceil(bounds.minZ / 100) * 100; z <= bounds.maxZ; z += 100) addDim(`${z / 100}m`, bounds.minX - 50, z);
+  }
 
   // 그림자 범위
   const cx = (bounds.minX + bounds.maxX) / 2 * S, cz = (bounds.minZ + bounds.maxZ) / 2 * S;
@@ -883,7 +922,7 @@ function deleteCorner(i) {
   });
 }
 function pickItem(e) {
-  if (ui.editRoom) return null;
+  if (ui.editRoom || ui.measure) return null;
   setNDC(e);
   const hit = ray.intersectObjects(itemsGroup.children, true).find(h => h.object.isMesh);
   return hit ? hit.object.userData.id : null;
@@ -985,6 +1024,7 @@ renderer.domElement.addEventListener('contextmenu', e => {
   deleteCorner(i);
 });
 function setRoomEdit(on) {
+  if (on && ui.measure) setMeasure(false);
   ui.editRoom = on;
   handles.forEach(h => { h.visible = on; });
   if (on) { select(null); viewTop(); setTab('room'); }
@@ -993,6 +1033,56 @@ function setRoomEdit(on) {
     : HELP_TEXT;
   renderPanel();
 }
+
+function setMeasure(on) {
+  if (on && ui.editRoom) setRoomEdit(false);
+  ui.measure = on;
+  itemsGroup.visible = !on;
+  labelRenderer.domElement.classList.toggle('measure', on);
+  if (on) { select(null); viewTop(); camera.position.y *= 1.25; setTab('room'); } // 상단 입력줄에 가리지 않게 조금 멀리
+  el('help').innerHTML = on
+    ? `<b>치수 기입 중</b> · 벽 바깥 칸: 줄자로 잰 길이(cm), Enter로 다음 벽 · 모서리 칸: 방 안쪽 각도 · 칸을 비우면 ${esc(state.room.source || '추정')} 값으로 돌아가요 · 가구는 이 동안만 숨겨져요`
+    : HELP_TEXT;
+  buildRoom();
+  renderPanel();
+}
+function setCeiling(v) {
+  if (!(v >= 100)) return rebuildAll(); // 잘못된 값이면 입력칸을 원래대로
+  commit(() => {
+    const old = state.room.height;
+    state.room.height = v;
+    state.items.forEach(it => { if (isBuilding(it) && it.h === old) it.h = v; }); // 기둥은 천장까지
+  });
+}
+function applyDim(k, v) {
+  const i = +k.slice(1), ws = state.room.walls;
+  if (k === 'height') return setCeiling(v);
+  if (k === 'sill') return v >= 0 ? commit(() => { state.room.sill = v; }) : rebuildAll();
+  if (k[0] === 'w') return commit(() => { ws[i].measured = v > 0 ? v : null; });
+  if (v > 0 && v < 360) return commit(() => { ws[i - 1].angle = v; });
+  rebuildAll();
+}
+// 값이 바뀌면 방을 다시 그려 입력칸이 새로 생기므로, 옮겨 간 칸의 포커스를 이어 준다
+vp.addEventListener('change', e => {
+  const k = e.target.dataset.dim, v = parseFloat(e.target.value);
+  if (!k) return;
+  setTimeout(() => {
+    const next = document.activeElement?.dataset?.dim;
+    applyDim(k, v);
+    if (!next) return;
+    labelRenderer.render(scene, camera);
+    const t = vp.querySelector(`[data-dim="${next}"]`);
+    if (t) { t.focus(); t.select(); }
+  });
+});
+vp.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.dataset?.dim) return;
+  e.preventDefault();
+  const all = [...vp.querySelectorAll('[data-dim]:not(:disabled)')].sort((a, b) => a.tabIndex - b.tabIndex);
+  const next = all[all.indexOf(e.target) + 1];
+  if (next) { next.focus(); next.select(); } else e.target.blur();
+});
+vp.addEventListener('click', e => { if (e.target.closest('[data-measdone]')) setMeasure(false); });
 
 function select(id, opts = {}) {
   selectedId = id;
@@ -1027,8 +1117,19 @@ function renderPanel() {
   document.getElementById('btnColor').classList.toggle('on', ui.colorMode === 'status');
   document.getElementById('btnLabels').classList.toggle('on', ui.labels);
   document.getElementById('btnRoomEdit').classList.toggle('on', !!ui.editRoom);
-  labelRenderer.domElement.style.display = ui.labels ? '' : 'none';
-  renderList(); renderEdit(); renderRoom(); renderFile();
+  document.getElementById('btnMeasure').classList.toggle('on', !!ui.measure);
+  labelRenderer.domElement.style.display = ui.labels || ui.measure ? '' : 'none';
+  renderMeasBar(); renderList(); renderEdit(); renderRoom(); renderFile();
+}
+function renderMeasBar() {
+  const b = el('measbar'), r = state.room, n = r.walls.length, bad = geom.closeErr > 5;
+  b.hidden = !ui.measure;
+  if (!ui.measure) return;
+  b.innerHTML = `<label>천장 높이 <input type="number" min="100" data-dim="height" tabindex="1" value="${r.height}"> cm</label>
+    <label>창턱 <input type="number" min="0" data-dim="sill" tabindex="2" value="${r.sill ?? 80}"> cm</label>
+    <span>실측 <b>${r.walls.filter(w => w.measured > 0).length}/${n}</b>벽</span>
+    <span class="${bad ? 'warn' : ''}" title="모서리 A에서 출발해 한 바퀴 돌았을 때 A와 어긋난 거리">${bad ? '⚠ ' : ''}어긋남 ${geom.closeErr.toFixed(1)}cm</span>
+    <button class="btn" data-measdone>끝내기</button>`;
 }
 const stChip = s => `<span class="st" style="background:${STATUS[s] || STATUS['미정']}">${esc(s || '미정')}</span>`;
 
@@ -1046,7 +1147,11 @@ function renderList() {
   };
   const byStatus = Object.keys(STATUS).map(s => `<span class="chip" style="background:${STATUS[s]}">${s} ${items.filter(i => (i.status || '미정') === s).length}</span>`).join(' ');
   const issueN = Object.keys(issues).length;
-  let h = `<div class="summary">총 <b>${items.length}</b>종 · 배치 <b>${placedN}</b> · 빼둠 <b>${items.length - placedN}</b>${issueN ? ` · <span class="warn">⚠ ${issueN}</span>` : ''}<br>${byStatus}</div>`;
+  let h = `<div class="summary">총 <b>${items.length}</b>종 · 배치 <b>${placedN}</b> · 빼둠 <b>${items.length - placedN}</b>${issueN ? ` · <span class="warn">⚠ ${issueN}</span>` : ''}<br>${byStatus}</div>
+    <div class="btns">
+      <button class="btn" data-act="allout" ${items.some(i => i.placed !== false && !isBuilding(i)) ? '' : 'disabled'}>가구 전체 빼기</button>
+      <button class="btn" data-act="allin" ${placedN < items.length ? '' : 'disabled'}>전체 다시 넣기</button>
+    </div>`;
   const zones = [...state.zones, { id: '__', name: '기타(구역 없음)' }];
   const zoneIds = new Set(state.zones.map(z => z.id));
   for (const z of zones) {
@@ -1064,7 +1169,7 @@ function renderList() {
     }
   }
   h += `<div class="btns"><button class="btn primary" data-act="add">+ 물품 추가</button></div>
-    <p class="hint">행 클릭: 선택·카메라 이동 · 더블클릭: 편집 · 체크 해제: 창고에서 빼기(3D에서 숨김)</p>`;
+    <p class="hint">행 클릭: 선택·카메라 이동 · 더블클릭: 편집 · 체크 해제: 창고에서 빼기(3D에서 숨김)<br>가구 전체 빼기: 목록은 남기고 3D에서만 비워요. 기둥처럼 건물인 것은 그대로예요.</p>`;
   document.getElementById('listBody').innerHTML = h;
 }
 
@@ -1104,7 +1209,10 @@ function renderRoom() {
   const wallOpts = cur => r.walls.map((_, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${wn(i)}</option>`).join('');
   const measN = r.walls.filter(w => w.measured > 0).length;
   el('tab-room').innerHTML = `
-    <div class="btns"><button class="btn ${ui.editRoom ? '' : 'primary'}" data-act="roomedit">${ui.editRoom ? '✓ 벽 모양 편집 끝내기' : '✏ 평면도에서 모서리 끌어 벽 모양 맞추기'}</button></div>
+    <div class="btns">
+      <button class="btn ${ui.measure ? '' : 'primary'}" data-act="measure">${ui.measure ? '✓ 치수 기입 끝내기' : '📏 평면도 위에서 모서리마다 치수 넣기'}</button>
+      <button class="btn" data-act="roomedit">${ui.editRoom ? '✓ 벽 모양 편집 끝내기' : '✏ 모서리 끌어 벽 모양 맞추기'}</button>
+    </div>
     ${ui.editRoom ? `<div class="okbox">빨간 점을 끌어 기억나는 모양대로 맞추세요. 옆 모서리와 거의 줄이 맞으면 자동으로 딱 맞춰져(직각) 붙어요.<br>
       벽을 더블클릭하면 모서리가 생기고, 점을 우클릭하면 지워져요. 길이는 아래 표에 바로 반영돼요.</div>` : ''}
     <div class="grid two">
@@ -1114,21 +1222,28 @@ function renderRoom() {
     <div class="${g.closeErr > 5 ? 'issues' : 'okbox'}">실측 입력 <b>${measN}/${n}</b>벽 · 한 바퀴 돌았을 때 어긋남 <b>${g.closeErr.toFixed(1)}cm</b>
       ${g.closeErr > 5 ? '<br>마지막 모서리가 A와 안 맞아요. 길이나 각도 중 틀린 값이 있는지 확인하세요.' : ''}</div>
     <h4><span>벽 둘레 실측 (모서리 A부터 차례로, cm)</span><span>${n}개 벽</span></h4>
-    <table class="walls"><tr><th>벽</th><th>종류</th><th>${esc(r.source || '추정')}</th><th>실측</th><th>끝 각°</th><th>휨</th><th></th></tr>
+    <table class="walls"><tr><th>벽</th><th>${esc(r.source || '추정')}</th><th>실측</th><th>끝 모서리 각°</th></tr>
     ${r.walls.map((w, i) => `<tr>
       <td class="wn">${wn(i)}${w.memo ? `<span class="wm">${esc(w.memo)}</span>` : ''}</td>
-      <td><select data-w="${i}" data-k="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === (w.kind || 'wall') ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
-      <td><input type="number" data-w="${i}" data-k="len" value="${w.len}" title="${esc(r.source || '추정')} 기준 길이"></td>
-      <td><input type="number" class="meas" data-w="${i}" data-k="measured" value="${w.measured > 0 ? w.measured : ''}" placeholder="잰 값" title="줄자로 잰 길이 — 넣으면 추정값 대신 사용"></td>
-      <td><input type="number" step="0.5" data-w="${i}" data-k="angle" value="${w.angle ?? 90}" title="${LET((i + 1) % n)} 모서리의 방 안쪽 각도 (직각 90, 기둥처럼 튀어나온 모서리 270, 일직선 180)"></td>
-      <td><input type="number" step="5" data-w="${i}" data-k="bulge" value="${w.bulge || 0}" title="곡면 벽이 가운데에서 바깥으로 불룩한 깊이 (안쪽으로 오목하면 음수)"></td>
-      <td style="white-space:nowrap"><button class="btn" data-act="addwall" data-i="${i}" title="이 벽 가운데에 모서리 추가">+</button><button class="btn danger" data-act="delwall" data-i="${i}" title="이 벽 삭제">×</button></td></tr>`).join('')}
+      <td style="white-space:nowrap">${w.len}</td>
+      <td style="width:84px"><input type="number" class="meas" data-w="${i}" data-k="measured" value="${w.measured > 0 ? w.measured : ''}" placeholder="잰 값" title="줄자로 잰 길이 — 넣으면 ${esc(r.source || '추정')} 값 대신 사용"></td>
+      <td style="width:84px"><input type="number" step="0.5" data-w="${i}" data-k="angle" value="${w.angle ?? 90}" title="${LET((i + 1) % n)} 모서리의 방 안쪽 각도 (직각 90, 기둥처럼 튀어나온 모서리 270, 일직선 180)"></td></tr>`).join('')}
     </table>
     <p class="hint"><b>실측</b> 칸(초록)에 줄자로 잰 길이를 넣으면 그 값으로 다시 그려요. 3D 바닥의 빨간 동그라미 A·B·C…가 모서리 이름입니다.<br>
     <b>끝 각°</b>: 그 벽이 끝나는 모서리에서 방 안쪽 각도 — 보통 90, 기둥 모서리처럼 방으로 튀어나온 곳은 270, 거의 일직선이면 180 근처.<br>
     <b>휨</b>: 곡면 벽(창문벽 등)의 양 끝을 실로 이었을 때 가운데에서 벽까지 거리.<br>
     모서리 좌표: ${g.corners.map((c, i) => `${LET(i)}(${Math.round(c[0])},${Math.round(c[1])})`).join(' ')}</p>
     <div class="btns"><button class="btn" data-act="expmeas">실측 기입표 CSV(현장용)</button></div>
+    <details><summary>벽 종류·기준 길이·휨, 벽 추가/삭제 (보통 안 바꿔도 됨)</summary>
+      <table class="walls"><tr><th>벽</th><th>종류</th><th>${esc(r.source || '추정')}</th><th>휨</th><th></th></tr>
+      ${r.walls.map((w, i) => `<tr>
+        <td class="wn">${wn(i)}</td>
+        <td><select data-w="${i}" data-k="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === (w.kind || 'wall') ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+        <td><input type="number" data-w="${i}" data-k="len" value="${w.len}" title="${esc(r.source || '추정')} 기준 길이"></td>
+        <td><input type="number" step="5" data-w="${i}" data-k="bulge" value="${w.bulge || 0}" title="곡면 벽이 가운데에서 바깥으로 불룩한 깊이 (안쪽으로 오목하면 음수)"></td>
+        <td style="white-space:nowrap"><button class="btn" data-act="addwall" data-i="${i}" title="이 벽 가운데에 모서리 추가">+</button><button class="btn danger" data-act="delwall" data-i="${i}" title="이 벽 삭제">×</button></td></tr>`).join('')}
+      </table>
+    </details>
     <h4><span>문</span><span>${r.doors.length}개</span></h4>
     <table><tr><th>벽</th><th>중심위치</th><th>폭</th><th>높이</th><th>종류</th><th></th></tr>
     ${r.doors.map((d, i) => `<tr>
@@ -1239,6 +1354,9 @@ panel.addEventListener('click', e => {
       });
       return;
     case 'roomedit': return setRoomEdit(!ui.editRoom);
+    case 'measure': return setMeasure(!ui.measure);
+    case 'allout': return commit(() => { state.items.forEach(x => { if (!isBuilding(x)) x.placed = false; }); });
+    case 'allin': return commit(() => { state.items.forEach(x => { x.placed = true; }); });
     case 'hist': return loadHistory();
     case 'histload': return openVersion(i);
     case 'expmeas': return download(`실측기입표-v${state.meta.version}.csv`, measCSV(), 'text/csv');
@@ -1267,6 +1385,7 @@ panel.addEventListener('change', e => {
   const t = e.target, d = t.dataset;
   const v = 'num' in d || t.type === 'number' ? (parseFloat(t.value) || 0) : t.value;
   if (d.f) { const it = getItem(selectedId); return commit(() => { it[d.f] = v; }); }
+  if (d.r === 'height') return setCeiling(v);
   if (d.r) return commit(() => { state.room[d.r] = v; });
   if (d.start !== undefined) return commit(() => { state.room.start[+d.start] = v; });
   if (d.w !== undefined) return commit(() => {
@@ -1363,6 +1482,7 @@ el('btnColor').onclick = () => { ui.colorMode = ui.colorMode === 'status' ? 'col
 el('btnLabels').onclick = () => { ui.labels = !ui.labels; saveUI(); renderPanel(); };
 el('btnUndo').onclick = undo;
 el('btnRoomEdit').onclick = () => setRoomEdit(!ui.editRoom);
+el('btnMeasure').onclick = () => setMeasure(!ui.measure);
 
 // ───────── 루프 ─────────
 function resize() {
