@@ -43,7 +43,7 @@
   table.walls .wn { font-weight: 700; color: var(--text); white-space: nowrap; }
   table.walls .wm { display: block; font-size: 10px; color: var(--muted); font-weight: 400; }
   details { margin: 10px 0; color: var(--muted); }
-  #hud { position: absolute; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; }
+  #hud { position: absolute; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; max-width: max(60%, calc(100% - 300px)); }
   #hud button, .btn { border: 1px solid var(--line); background: #fff; padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
   #hud button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   #cloud { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 8px; padding: 4px 4px 4px 10px; max-width: calc(100% - 20px); }
@@ -105,7 +105,7 @@
 </style>
 <script>
   // 데이터 파일은 항상 최신으로 (브라우저 캐시 때문에 예전 배치가 보이지 않게)
-  document.write('<script src="data/config.js?t=' + Date.now() + '"><\/script><script src="data/layout.js?t=' + Date.now() + '"><\/script>');
+  document.write('<script src="data/config.js?t=' + Date.now() + '"><\/script><script src="data/layout.js?t=' + Date.now() + '"><\/script><script src="data/before.js?t=' + Date.now() + '"><\/script>');
 </script>
 <script type="importmap">
 { "imports": {
@@ -123,6 +123,7 @@
       <button id="btnColor">상태별 색</button>
       <button id="btnLabels">이름표</button>
       <button id="btnUndo" title="Ctrl+Z">되돌리기</button>
+      <button id="btnBefore" title="정리하기 전 가구 위치를 보기 전용으로 띄우기">정리 전 보기</button>
       <button id="btnMeasure" title="평면도 위 모서리·벽마다 줄자 값과 천장 높이 넣기">📏 치수 기입</button>
       <button id="btnRoomEdit" title="평면도에서 모서리를 끌어 벽 모양 바꾸기">✏ 벽 모양 편집</button>
       <div id="measbar" hidden></div>
@@ -136,6 +137,7 @@
       <div class="sub" id="roomInfo"></div>
     </header>
     <nav class="tabs">
+      <button data-tab="buy">구매 목록</button>
       <button data-tab="list" class="on">물품 목록</button>
       <button data-tab="edit">선택 물품</button>
       <button data-tab="room">공간 치수</button>
@@ -152,11 +154,13 @@
           <option value="유지">유지</option>
           <option value="이동">이동</option>
           <option value="폐기">폐기</option>
+          <option value="구매">구매</option>
           <option value="issue">⚠ 겹침·벽밖</option>
         </select>
       </div>
       <div id="listBody"></div>
     </section>
+    <section class="tab" id="tab-buy"></section>
     <section class="tab" id="tab-edit"></section>
     <section class="tab" id="tab-room"></section>
     <section class="tab" id="tab-file"></section>
@@ -171,15 +175,15 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 // ───────── 상태 ─────────
 const STORE_KEY = 'warehouse-layout-v1', SNAP_KEY = 'warehouse-snapshots-v1', UI_KEY = 'warehouse-ui-v1';
 const S = 0.01; // cm → 3D 단위(m)
-const STATUS = { '미정': '#9aa0a6', '유지': '#43a047', '이동': '#1e88e5', '폐기': '#e53935' };
-const TYPES = { box: '박스/일반', cabinet: '도어 캐비닛', glasscab: '유리장', shelf: '오픈 선반', rack: '옷 행거', cart: '핸드카트', stand: '스탠드', beanbag: '빈백', soft: '이불·쿠션', panel: '판넬(기댐)', pile: '잡동사니 더미' };
+const STATUS = { '미정': '#9aa0a6', '유지': '#43a047', '이동': '#1e88e5', '폐기': '#e53935', '구매': '#8e24aa' };
+const TYPES = { box: '박스/일반', cabinet: '도어 캐비닛', glasscab: '유리장', shelf: '오픈 선반', rack: '옷 행거', cart: '핸드카트', stand: '스탠드', beanbag: '빈백', soft: '이불·쿠션', panel: '판넬(기댐)', pile: '잡동사니 더미', steelrack: '철제 랙', fridge: '업소용 냉장고' };
 const clone = o => JSON.parse(JSON.stringify(o));
 const isBuilding = it => it.cat === '건물'; // 기둥 등 건물 일부 — 가구 전체 빼기에서 제외
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let archivedFrom = null;
 let state = loadState();
-let ui = Object.assign({ labels: true, colorMode: 'color', tab: 'list', q: '', filter: 'all' }, readJSON(UI_KEY) || {});
+let ui = Object.assign({ labels: true, colorMode: 'color', tab: 'buy', q: '', filter: 'all' }, readJSON(UI_KEY) || {});
 let selectedId = null;
 let issues = {};
 const undoStack = [];
@@ -329,6 +333,7 @@ async function openVersion(rev) {
 function saveUI() { writeJSON(UI_KEY, { labels: ui.labels, colorMode: ui.colorMode, tab: ui.tab }); }
 function getItem(id) { return state.items.find(i => i.id === id); }
 function commit(fn) {
+  viewBefore = false;
   undoStack.push(JSON.stringify(state));
   if (undoStack.length > 100) undoStack.shift();
   fn();
@@ -766,6 +771,33 @@ const BUILD = {
     sub.rotation.x = -0.06; sub.position.z = h * 0.03;
     g.add(sub);
   },
+  steelrack(g, w, h, d, c, id, it) {
+    const pm = mat(c, { metalness: 0.5, roughness: 0.4 }), bm = mat(0xdfe3e8), p = 0.03;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) addBox(g, p, h, p, sx * (w - p) / 2, h / 2, sz * (d - p) / 2, pm, true);
+    const n = Math.max(1, it?.tiers || 5), rods = it?.rods || 0;
+    if (rods) {
+      addCyl(g, 0.012, w - p, 0, h - 0.13, 0, mat(0xc4c8cc, { metalness: 0.7, roughness: 0.3 }), 'x');
+      addBox(g, w * 0.88, 0.95, d * 0.8, 0, h - 0.15 - 0.475, 0, mat(0x5d6b82), true); // 걸린 옷
+    }
+    for (let k = 0; k < n; k++) {
+      const y = rods ? (k === n - 1 ? h - 0.03 : 0.1 + 0.48 * k / Math.max(1, n - 2)) : 0.1 + (h - 0.13) * k / Math.max(1, n - 1);
+      addBox(g, w, 0.025, d, 0, y, 0, bm, true);
+      addBox(g, w, 0.04, 0.01, 0, y, d / 2, pm);
+      addBox(g, w, 0.04, 0.01, 0, y, -d / 2, pm);
+    }
+  },
+  fridge(g, w, h, d, c) {
+    const body = h * 0.9, cols = w > 1 ? 2 : 1, dw = w / cols;
+    addBox(g, w, body, d, 0, body / 2, 0, mat(c, { metalness: 0.55, roughness: 0.35 }), true);
+    addBox(g, w, h - body, d * 0.9, 0, body + (h - body) / 2, -d * 0.05, mat(0x8d949b), true); // 위쪽 기계실
+    const dk = mat(0x4a5057), hm = mat(0x30353a);
+    for (let i = 0; i < cols; i++) for (let r = 0; r < 2; r++) {
+      const x = -w / 2 + dw * (i + 0.5), y = 0.12 + (body - 0.12) * (r + 0.5) / 2;
+      addBox(g, dw * 0.96, (body - 0.12) / 2 * 0.96, 0.01, x, y, d / 2 + 0.005, mat(0xe2e6ea, { metalness: 0.5, roughness: 0.3 }));
+      addBox(g, 0.02, 0.28, 0.025, x + dw * 0.38 * (i ? -1 : 1), y, d / 2 + 0.022, hm);
+    }
+    addBox(g, w, 0.12, 0.01, 0, 0.06, d / 2 + 0.002, dk);
+  },
   pile(g, w, h, d, c, id) {
     let s = hash(id);
     const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
@@ -781,11 +813,12 @@ const BUILD = {
 };
 
 const meshById = new Map();
+let viewBefore = false; // 정리 전 배치를 보기 전용으로 띄운 상태
 function buildItem(it) {
   const g = new THREE.Group();
   g.userData.id = it.id;
   const color = new THREE.Color(it.color || '#bbbbbb').getHex();
-  (BUILD[it.type] || BUILD.box)(g, it.w * S, it.h * S, it.d * S, color, it.id);
+  (BUILD[it.type] || BUILD.box)(g, it.w * S, it.h * S, it.d * S, color, it.id, it);
   if (ui.colorMode === 'status') {
     const sm = mat(new THREE.Color(STATUS[it.status] || STATUS['미정']).getHex());
     g.traverse(o => { if (o.isMesh) o.material = sm; });
@@ -804,7 +837,7 @@ function buildItem(it) {
 function rebuildItems() {
   disposeGroup(itemsGroup);
   meshById.clear();
-  for (const it of state.items) {
+  for (const it of viewBefore ? window.WAREHOUSE_BEFORE : state.items) {
     if (it.placed === false) continue;
     const g = buildItem(it);
     itemsGroup.add(g);
@@ -922,7 +955,7 @@ function deleteCorner(i) {
   });
 }
 function pickItem(e) {
-  if (ui.editRoom || ui.measure) return null;
+  if (ui.editRoom || ui.measure || viewBefore) return null;
   setNDC(e);
   const hit = ray.intersectObjects(itemsGroup.children, true).find(h => h.object.isMesh);
   return hit ? hit.object.userData.id : null;
@@ -1118,8 +1151,10 @@ function renderPanel() {
   document.getElementById('btnLabels').classList.toggle('on', ui.labels);
   document.getElementById('btnRoomEdit').classList.toggle('on', !!ui.editRoom);
   document.getElementById('btnMeasure').classList.toggle('on', !!ui.measure);
+  document.getElementById('btnBefore').classList.toggle('on', viewBefore);
+  document.getElementById('btnBefore').textContent = viewBefore ? '정리안으로 돌아가기' : '정리 전 보기';
   labelRenderer.domElement.style.display = ui.labels || ui.measure ? '' : 'none';
-  renderMeasBar(); renderList(); renderEdit(); renderRoom(); renderFile();
+  renderMeasBar(); renderBuy(); renderList(); renderEdit(); renderRoom(); renderFile();
 }
 function renderMeasBar() {
   const b = el('measbar'), r = state.room, n = r.walls.length, bad = geom.closeErr > 5;
@@ -1173,6 +1208,46 @@ function renderList() {
   document.getElementById('listBody').innerHTML = h;
 }
 
+const BUY_PRESETS = {
+  r600: { name: '스피드랙 W600', type: 'steelrack', cat: '구매·랙', w: 60, d: 50, h: 180, tiers: 5, rods: 0, spec: '스피드랙 W600×D500×H1800 5단', price: 75000, color: '#e4e5e1' },
+  r1200: { name: '스피드랙 W1200', type: 'steelrack', cat: '구매·랙', w: 120, d: 50, h: 180, tiers: 5, rods: 0, spec: '스피드랙 W1200×D500×H1800 5단', price: 98600, color: '#e4e5e1' },
+  h1200: { name: '스피드랙 W1200 옷봉', type: 'steelrack', cat: '구매·랙', w: 120, d: 50, h: 180, tiers: 3, rods: 1, spec: '스피드랙 W1200×D500×H1800 3단+옷봉1', price: 98600, color: '#e4e5e1' },
+  f25: { name: '업소용 냉장고 2도어(냉장·냉동)', type: 'fridge', cat: '구매·냉장고', w: 64, d: 83, h: 190, spec: '25박스 상하 2도어(냉장1·냉동1) W640×D830×H1900', color: '#c9ced4' },
+  f45: { name: '업소용 냉장고 45박스', type: 'fridge', cat: '구매·냉장고', w: 126, d: 80, h: 190, spec: '45박스 4도어 W1260×D800×H1900', color: '#c9ced4' },
+};
+function renderBuy() {
+  const won = v => v ? v.toLocaleString('ko-KR') + '원' : '견적 필요';
+  const rows = new Map();
+  for (const it of state.items) {
+    if (it.status !== '구매' || it.placed === false) continue;
+    const k = it.spec || it.name, r = rows.get(k) || { spec: k, qty: 0, price: it.price };
+    r.qty += it.qty || 1;
+    rows.set(k, r);
+  }
+  const list = [...rows.values()];
+  const racks = state.items.filter(i => i.status === '구매' && i.placed !== false && i.type === 'steelrack');
+  const shelf = racks.reduce((a, i) => a + i.w * (i.tiers || 5) * (i.qty || 1), 0) / 100;
+  const rod = racks.reduce((a, i) => a + i.w * (i.rods || 0) * (i.qty || 1), 0) / 100;
+  const total = list.reduce((a, r) => a + (r.price || 0) * r.qty, 0), noPrice = list.some(r => !r.price);
+  el('tab-buy').innerHTML = `
+    <div class="summary">랙 <b>${racks.reduce((a, i) => a + (i.qty || 1), 0)}</b>대 · 선반 총 길이 <b>${shelf.toFixed(1)}</b>m · 옷봉 <b>${rod.toFixed(1)}</b>m<br>참고가 합계 <b>${total.toLocaleString('ko-KR')}</b>원${noPrice ? ' + 견적 필요 품목' : ''}</div>
+    <table class="walls"><tr><th>규격</th><th>수량</th><th>참고가(1대)</th></tr>
+    ${list.map(r => `<tr><td>${esc(r.spec)}</td><td style="white-space:nowrap">${r.qty}대</td><td style="white-space:nowrap">${won(r.price)}</td></tr>`).join('') || '<tr><td colspan="3">구매 상태인 물품이 없습니다.</td></tr>'}
+    </table>
+    <div class="btns">
+      <button class="btn" data-act="buyadd" data-p="r600">+ 랙 W600</button>
+      <button class="btn" data-act="buyadd" data-p="r1200">+ 랙 W1200</button>
+      <button class="btn" data-act="buyadd" data-p="h1200">+ 옷봉 랙 W1200</button>
+      <button class="btn" data-act="buyadd" data-p="f25">+ 냉장고 2도어</button>
+      <button class="btn" data-act="buyadd" data-p="f45">+ 냉장고 45박스</button>
+    </div>
+    <p class="hint">기존 장은 그대로 두고 창가에만 넣은 안입니다. 물품을 옮기거나 빼면 이 표가 같이 바뀌어요.<br>
+    랙 규격·가격은 11번가 스피드랙 옵션표 기준 참고값(해당 크기 최고가)이고, 단을 더 넣으면 추가 비용이 있어요. 단당 하중은 판매처 확인이 필요해요.<br>
+    냉장고 치수는 25박스 일반 값이라 모델별로 조금씩 달라요.<br>
+    창 앞이라 랙을 벽에 고정하기 어려워요. 무거운 짐은 아래 단에 두세요.<br>
+    냉장고 자리에 전용 콘센트가 있는지 확인이 필요해요. 지금 확인된 콘센트는 I–J 벽뿐입니다.</p>`;
+}
+
 function renderEdit() {
   const el = document.getElementById('tab-edit');
   const it = getItem(selectedId);
@@ -1191,6 +1266,8 @@ function renderEdit() {
     <div class="grid">${num('w', '가로 cm')}${num('d', '깊이 cm')}${num('h', '높이 cm')}</div>
     <div class="grid">${num('x', 'X 위치 cm', 5)}${num('z', 'Z 위치 cm', 5)}${num('y', '띄운 높이 cm', 5)}</div>
     <div class="grid">${num('rot', '회전 °', 15)}${num('qty', '수량')}<label class="f">색<input type="color" data-f="color" value="${esc(it.color || '#bbbbbb')}"></label></div>
+    ${it.type === 'steelrack' ? `<div class="grid">${num('tiers', '단수')}${num('rods', '옷봉 개수')}</div>` : ''}
+    ${it.status === '구매' ? `<label class="f">규격<input data-f="spec" value="${esc(it.spec || '')}"></label><div class="grid">${num('price', '참고가 원', 100)}</div>` : ''}
     <label class="f">메모<textarea data-f="memo" rows="2">${esc(it.memo)}</textarea></label>
     ${issues[it.id] ? `<div class="issues">⚠ ${issues[it.id].map(esc).join('<br>⚠ ')}</div>` : ''}
     <div class="btns">
@@ -1329,6 +1406,11 @@ panel.addEventListener('click', e => {
         x: Math.round(c.x / S / 5) * 5, z: Math.round(c.z / S / 5) * 5, y: 0, w: 60, d: 60, h: 60, rot: 0, color: '#9db4c8', placed: true, memo: '' }));
       return select(id, { tab: 'edit' });
     }
+    case 'buyadd': {
+      const c = center(), id = 'r' + Date.now().toString(36);
+      commit(() => state.items.push({ id, zone: state.zones[0]?.id || 'A', status: '구매', qty: 1, x: Math.round(c.x / S / 5) * 5, z: Math.round(c.z / S / 5) * 5, y: 0, rot: 0, placed: true, memo: '', ...BUY_PRESETS[actEl.dataset.p] }));
+      return select(id, { tab: 'edit' });
+    }
     case 'rot': return commit(() => { it.rot = ((it.rot || 0) + 90) % 360; });
     case 'dup': {
       const id = 'i' + Date.now().toString(36);
@@ -1461,10 +1543,10 @@ function measCSV() {
 }
 function toCSV() {
   const zn = Object.fromEntries(state.zones.map(z => [z.id, z.name]));
-  const cols = ['구역', '이름', '분류', '모양', '정리상태', '수량', '가로cm', '깊이cm', '높이cm', 'X', 'Z', '띄운높이', '회전', '배치', '메모', '경고'];
+  const cols = ['구역', '이름', '분류', '모양', '정리상태', '수량', '가로cm', '깊이cm', '높이cm', 'X', 'Z', '띄운높이', '회전', '배치', '메모', '경고', '규격', '단수', '참고가'];
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = state.items.map(it => [zn[it.zone] || it.zone, it.name, it.cat, TYPES[it.type] || it.type, it.status, it.qty, it.w, it.d, it.h, it.x, it.z, it.y || 0, it.rot || 0,
-    it.placed === false ? '빼둠' : '배치', it.memo, (issues[it.id] || []).join(' / ')].map(q).join(','));
+    it.placed === false ? '빼둠' : '배치', it.memo, (issues[it.id] || []).join(' / '), it.spec, it.tiers, it.price].map(q).join(','));
   return '﻿' + [cols.map(q).join(','), ...rows].join('\r\n');
 }
 function download(name, text, type) {
@@ -1483,6 +1565,7 @@ el('btnLabels').onclick = () => { ui.labels = !ui.labels; saveUI(); renderPanel(
 el('btnUndo').onclick = undo;
 el('btnRoomEdit').onclick = () => setRoomEdit(!ui.editRoom);
 el('btnMeasure').onclick = () => setMeasure(!ui.measure);
+el('btnBefore').onclick = () => { viewBefore = !viewBefore; select(null); rebuildItems(); renderPanel(); };
 
 // ───────── 루프 ─────────
 function resize() {
